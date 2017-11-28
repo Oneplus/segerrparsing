@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 import gzip
 import os
 import sys
@@ -73,7 +75,7 @@ def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>'):
   bi = [ bi_map2id.get(w, oov_id) for seq in bi for w in seq ]
   bi = torch.LongTensor(bi)
 
-  assert bi.size(0) == bi_length * batch_size
+  assert bi.size(0) == bi_length * batch_size  # 如果不满足这个等式就报错
 
   return (uni.view(batch_size, uni_length).contiguous(), bi.view(batch_size, bi_length).contiguous()), y
 
@@ -88,13 +90,13 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None, sort=True
     lst = sorted(lst, key=lambda i: -len(y[i]))
 
   x = ([x[0][i] for i in lst], [x[1][i] for i in lst])
-  y = [ y[i] for i in lst ]
+  y = [ y[i] for i in lst ]  # ？？
 
   sum_len = 0.0
   batches_x = [ ]
   batches_y = [ ]
   size = batch_size
-  nbatch = (len(x[0])-1) // size + 1
+  nbatch = (len(x[0])-1) // size + 1  # nbatch代表有多少个batch
   for i in range(nbatch):
     bx, by = create_one_batch((x[0][i*size:(i+1)*size], x[1][i*size:(i+1)*size]), y[i*size:(i+1)*size], uni_map2id, bi_map2id)
     sum_len += len(by[0])
@@ -132,7 +134,7 @@ def load_embedding_txt(path):
   return words, np.asarray(vals).reshape(len(words),-1)
 
 def load_embedding(path):
-  if path.endswith(".npz"):
+  if path.endswith(".npz"):  # 这里判断是否是要动的是压缩文件
     return load_embedding_npz(path)
   else:
-    return load_embedding_txt(path)
+    return load_embedding_txt(path)  # 这里是最简单的路径

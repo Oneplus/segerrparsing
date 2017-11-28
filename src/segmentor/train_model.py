@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 import os
 import sys
 import argparse
@@ -14,7 +16,7 @@ from torch.autograd import Variable
 import torch.nn.utils.rnn as rnn
 from compiler.ast import flatten
 
-import cuda_functional as MF
+#import cuda_functional as MF
 import dataloader
 import modules
 
@@ -81,20 +83,20 @@ class Model(nn.Module):
   def forward(self, x, y):
     
     start_time = time.time()    
-    unigram = Variable(x[0]).cuda()
+    unigram = Variable(x[0])
 
-    lb_indices = Variable(torch.LongTensor(range(x[1].size(1))[:-1])).cuda()
-    rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:])).cuda()
+    lb_indices = Variable(torch.LongTensor(range(x[1].size(1))[:-1]))
+    rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:]))
     
 
-    left_bigram = torch.index_select(Variable(x[1]).cuda(), 1, lb_indices)
-    right_bigram = torch.index_select(Variable(x[1]).cuda(), 1, rb_indices)
+    left_bigram = torch.index_select(Variable(x[1]), 1, lb_indices)  # 从左边开始的bigram
+    right_bigram = torch.index_select(Variable(x[1]), 1, rb_indices)  # 从右边开始的bigram，都是作为特征
 
     unigram = self.uni_emb_layer(unigram)
     left_bigram = self.bi_emb_layer(left_bigram)
     right_bigram = self.bi_emb_layer(right_bigram)
 
-    emb = torch.cat((unigram, left_bigram, right_bigram), 2)
+    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # 将最后的特征进行连接起来
     
     emb = F.dropout(emb, self.args.dropout, self.training)
 
@@ -107,7 +109,7 @@ class Model(nn.Module):
       #x = rnn.pack_padded_sequence(x, [len(seq) for seq in y])
       output, hidden = self.encoder(x)
       #output = rnn.pad_packed_sequence(output)[0]
-      output = output.permute(1, 0, 2)
+      output = output.permute(1, 0, 2)  # 这个permute是用来对维度进行重新排列
       
     elif self.args.cnn or self.args.gcnn:
       output = self.encoder(emb)
@@ -121,7 +123,7 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    output, loss = self.classify_layer.forward(output, y)
+    output, loss = self.classify_layer.forward(output, y)  # 最后通过一个分类层
 
     if not self.training:
       self.classify_time += time.time() - start_time
@@ -183,8 +185,11 @@ def eval_model(niter, model, valid_x, valid_y):
   gold = []
   for x, y in zip(valid_x, valid_y):
     output, loss = model.forward(x, y)
+    #print(output)
+
     #total_loss += loss.data[0]
     pred += output
+    #print(pred)
     gold += y
   model.train()
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
@@ -202,18 +207,19 @@ def train_model(epoch, model, optimizer,
 
   model.train()
   args = model.args
-  N = len(train_x[0])
-  niter = epoch*len(train_x[0])
+  N = len(train_x[0])  # 有多少个训练数据
+  niter = epoch*len(train_x[0])  # iter count is double of train_x[0]
+
 
   total_loss = 0.0
   total_tag = 0
   cnt = 0
   start_time = time.time()
-  for x, y in zip(train_x, train_y):
+  for x, y in zip(train_x, train_y):  # 对应这些训练数据的每一个来看
     niter += 1
     cnt += 1
     model.zero_grad()
-    output, loss = model.forward(x, y)
+    output, loss = model.forward(x, y) # x,y都是以一个batch为单位的
     total_loss += loss.data[0]
     total_tag += len(flatten(output))
     loss.backward()
@@ -293,13 +299,13 @@ def main(args):
     bi_emb_layer.word2id, 
   )
 
-  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses).cuda()
+  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses)
     
   need_grad = lambda x: x.requires_grad
   if args.adam:
     optimizer = optim.Adam(
       model.parameters(),
-      #filter(need_grad, model.parameters()),
+      filter(need_grad, model.parameters()),
       lr = args.lr
     ) 
   else:
@@ -337,9 +343,9 @@ if __name__ == "__main__":
   argparser.add_argument("--dilated", action='store_true', help="whether to use dialted CNN")
   argparser.add_argument("--sru", action='store_true', help="whether to use SRU")
   argparser.add_argument("--adam", action='store_true', help="whether to use adam")
-  argparser.add_argument("--path", type=str, required=True, help="path to corpus directory")
-  argparser.add_argument("--unigram_embedding", type=str, required=True, help="unigram word vectors")
-  argparser.add_argument("--bigram_embedding", type=str, required=True, help="bigram word vectors")
+  argparser.add_argument("--path", type=str, required=True, help="path to corpus directory", default='../data')
+  argparser.add_argument("--unigram_embedding", type=str, required=True, help="unigram word vectors", default='../data/unigram_100.embed')
+  argparser.add_argument("--bigram_embedding", type=str, required=True, help="bigram word vectors", default='../data/bigram_100.embed')
   argparser.add_argument("--batch_size", "--batch", type=int, default=32)
   argparser.add_argument("--hidden_dim", "--hidden", type=int, default=128)
   argparser.add_argument("--max_epoch", type=int, default=100)
