@@ -25,6 +25,8 @@ logging.basicConfig(level = logging.INFO, format = '%(asctime)s [INFO] %(message
 
 torch.manual_seed(31415926)
 random.seed(31415926)
+tag_to_ix = {'B': 0, 'I': 1, 'E': 2, 'S': 3}
+ix_to_tag = {ix:tag for tag, ix in tag_to_ix.items()}
 
 class Model(nn.Module):
   def __init__(self, args, uni_emb_layer, bi_emb_layer, n_class = 4):
@@ -89,15 +91,15 @@ class Model(nn.Module):
     rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:]))
     
 
-    left_bigram = torch.index_select(Variable(x[1]), 1, lb_indices)  # 从左边开始的bigram
-    right_bigram = torch.index_select(Variable(x[1]), 1, rb_indices)  # 从右边开始的bigram，都是作为特征
+    left_bigram = torch.index_select(Variable(x[1]), 1, lb_indices)  # expect the end
+    right_bigram = torch.index_select(Variable(x[1]), 1, rb_indices)  # expect the start
 
     unigram = self.uni_emb_layer(unigram)
     left_bigram = self.bi_emb_layer(left_bigram)
     right_bigram = self.bi_emb_layer(right_bigram)
 
-    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # 将最后的特征进行连接起来
-    
+    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
+
     emb = F.dropout(emb, self.args.dropout, self.training)
 
     if not self.training:
@@ -109,7 +111,7 @@ class Model(nn.Module):
       #x = rnn.pack_padded_sequence(x, [len(seq) for seq in y])
       output, hidden = self.encoder(x)
       #output = rnn.pad_packed_sequence(output)[0]
-      output = output.permute(1, 0, 2)  # 这个permute是用来对维度进行重新排列
+      output = output.permute(1, 0, 2)  # the permuate is used to rearange those row
       
     elif self.args.cnn or self.args.gcnn:
       output = self.encoder(emb)
@@ -123,12 +125,21 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    output, loss = self.classify_layer.forward(output, y)  # 最后通过一个分类层
+    output, loss = self.classify_layer.forward(output, y)  # through a classify layer
 
     if not self.training:
       self.classify_time += time.time() - start_time
 
-    return output, loss 
+    return output, loss
+  def model_save(self, model, path):
+      """
+      保存模型
+      :param model:
+      :return:
+      """
+      # torch.save(model.state_dict(), '../data/model.pkl')
+
+      torch.save(model.state_dict(), path)
 
 def get_intervals(tag):
   intervals = []
@@ -185,10 +196,16 @@ def eval_model(niter, model, valid_x, valid_y):
   gold = []
   for x, y in zip(valid_x, valid_y):
     output, loss = model.forward(x, y)
-    #print(output)
+    # print(output)
+    # output batch*max_len
 
+    # for index, value in enumerate(output):
+    #     for index_tag, value_tag in enumerate(value):
+    #         print ix_to_tag[value_tag],
+    #     print('\n')
     #total_loss += loss.data[0]
     pred += output
+
     #print(pred)
     gold += y
   model.train()
@@ -200,26 +217,26 @@ def eval_model(niter, model, valid_x, valid_y):
   ))
   return F
 
-def train_model(epoch, model, optimizer,
+def train_model(args, epoch, model, optimizer,
         train_x, train_y, valid_x, valid_y,
         test_x, test_y,
-        best_valid, test_result):
+        best_valid, test_result, uni_emb_layer):
 
   model.train()
   args = model.args
-  N = len(train_x[0])  # 有多少个训练数据
-  niter = epoch*len(train_x[0])  # iter count is double of train_x[0]
+  N = len(train_x[0])  # get the number of training_data
+  niter = epoch*len(train_x[0])  # for statis and output log
 
 
   total_loss = 0.0
   total_tag = 0
   cnt = 0
   start_time = time.time()
-  for x, y in zip(train_x, train_y):  # 对应这些训练数据的每一个来看
+  for x, y in zip(train_x, train_y):
     niter += 1
     cnt += 1
     model.zero_grad()
-    output, loss = model.forward(x, y) # x,y都是以一个batch为单位的
+    output, loss = model.forward(x, y) # x,y batch*sentence_len
     total_loss += loss.data[0]
     total_tag += len(flatten(output))
     loss.backward()
@@ -244,6 +261,7 @@ def train_model(epoch, model, optimizer,
   ))
 
   if valid_result > best_valid:
+    model.model_save(model, args.model_save_path)
     best_valid = valid_result
     test_result = eval_model(niter, model, test_x, test_y)
     logging.info("Epoch={} iter={} lr={:.6f} test_F1={:.6f}".format(
@@ -251,8 +269,76 @@ def train_model(epoch, model, optimizer,
       optimizer.param_groups[0]['lr'],
       test_result
     ))
+
   sys.stdout.write("\n")
   return best_valid, test_result
+
+def get_batch_res(x, predict_y, uni_emb_layer):
+    """
+    得到一个batch下的x, predcit_y， 特别注意它的x是pad的，但是y不是pad的
+    :param x:
+    :param predict_y:
+    :param bi_emb_layer  用来映射word2id
+    :return:   type:str
+    """
+    str_res = ""
+    batch_size = len(x)  # 这个batch_size有多大
+    for i in range(batch_size):
+        input = []
+        predict = []
+        sentence_x = x[i][0].numpy().tolist()
+        sentence_y = predict_y[i]
+        for index, value in enumerate(sentence_y):  # 必须以y的长度为主，因为x是pad过的
+            input.append(uni_emb_layer.id2word[sentence_x[index]])
+            #print(sentence_y[index])
+            predict.append(ix_to_tag[sentence_y[index]])
+        str_res +=' '.join(input)
+        str_res += '\t'
+        str_res +=' '.join(predict)
+        str_res += '\n'
+
+    return str_res
+
+def predict_model(model, uni_emb_layer, model_path, test_x, test_y, res_path):
+    """
+    predict the test data and output the segged word
+    :param test_x:   gold input
+    :param test_y:   gold laber
+    :param res_path  the path for saving result
+    :param uni_emb_layer
+    :param model_path  the path of model
+    :return:
+    """
+
+    fp_res = open(res_path, 'w')
+
+    model.load_state_dict(torch.load(model_path))
+    start_time = time.time()
+    model.eval()
+    N = len(test_x)
+    str_res = ""
+    pred = []
+    gold = []
+    for x, y in zip(test_x, test_y):
+        output, loss = model.forward(x, y)
+
+        # total_loss += loss.data[0]
+        pred += output
+
+        str_res += get_batch_res(x, output, uni_emb_layer)
+        # print(pred)
+        gold += y
+    model.train()
+    correct = map(cmp, flatten(gold), flatten(pred)).count(0)
+    total = len(flatten(gold))
+    P, R, F = evaluate(gold, pred)
+    logging.info("**Evaluate result: acc = {:.6f}, P = {:.6f}, R = {:.6f}, F = {:.6f} time = {}".format(
+        1.0 * correct / total, P, R, F, time.time() - start_time
+    ))
+    fp_res.write(str_res)
+    fp_res.close()
+    return F
+
 
 def main(args):
   train_x, train_y, valid_x, valid_y, test_x, test_y = dataloader.read_data(args.path)
@@ -271,13 +357,13 @@ def main(args):
     embs = dataloader.load_embedding(args.unigram_embedding))
     
   logging.info('unigram embedding size: ' + str(len(uni_emb_layer.word2id)))
-
+  logging.info('unigram embedding size: ' + str(len(uni_emb_layer.id2word)))
   bi_emb_layer = modules.EmbeddingLayer(
     args.d, bi_data, fix_emb = False,
     embs = dataloader.load_embedding(args.bigram_embedding))
 
   logging.info('bigram embedding size: ' + str(len(bi_emb_layer.word2id)))
-      
+
   nclasses = 4
 
   train_x, train_y = dataloader.create_batches(
@@ -300,49 +386,57 @@ def main(args):
   )
 
   model = Model(args, uni_emb_layer, bi_emb_layer, nclasses)
-    
-  need_grad = lambda x: x.requires_grad
-  if args.adam:
-    optimizer = optim.Adam(
-      model.parameters(),
-      filter(need_grad, model.parameters()),
-      lr = args.lr
-    ) 
-  else:
-    optimizer = optim.SGD(
-      filter(need_grad, model.parameters()),
-      lr = args.lr
-    )
-  best_valid = -1e+8
-  test_result = -1e+8
-  for epoch in range(args.max_epoch):
-    best_valid, test_result = train_model(epoch, model, optimizer,
-      train_x, train_y,
-      valid_x, valid_y,
-      test_x, test_y,
-      best_valid, test_result
-    )
-    if args.lr_decay>0:
-      optimizer.param_groups[0]['lr'] *= args.lr_decay
-    logging.info('Total encoder time: ' + str(model.eval_time))
-    logging.info('Total embedding time: ' + str(model.emb_time))
-    logging.info('Total classify time: ' + str(model.classify_time))
 
-  logging.info("best_valid: {:.6f}".format(
-    best_valid
-  ))
-  logging.info("test_err: {:.6f}".format(
-    test_result
-  ))
+  if args.type == 'test':
+      predict_model(model, uni_emb_layer, args.model_save_path, test_x, test_y, args.res_path)
+  else:  # if train, the procedure is the same as origin code
+      need_grad = lambda x: x.requires_grad
+      if args.adam:
+        optimizer = optim.Adam(
+          model.parameters(),
+          filter(need_grad, model.parameters()),
+          lr = args.lr
+        )
+      else:
+        optimizer = optim.SGD(
+          filter(need_grad, model.parameters()),
+          lr = args.lr
+        )
+      best_valid = -1e+8
+      test_result = -1e+8
+      for epoch in range(args.max_epoch):
+        best_valid, test_result = train_model(args, epoch, model, optimizer,
+          train_x, train_y,
+          valid_x, valid_y,
+          test_x, test_y,
+          best_valid, test_result,
+          uni_emb_layer
+        )
+        if args.lr_decay>0:
+          optimizer.param_groups[0]['lr'] *= args.lr_decay
+        logging.info('Total encoder time: ' + str(model.eval_time))
+        logging.info('Total embedding time: ' + str(model.emb_time))
+        logging.info('Total classify time: ' + str(model.classify_time))
+
+      logging.info("best_valid: {:.6f}".format(
+        best_valid
+      ))
+      logging.info("test_err: {:.6f}".format(
+        test_result
+      ))
+
 
 if __name__ == "__main__":
   argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
+  argparser.add_argument("--type", help = "whether learn or test", default='learn')
+  argparser.add_argument("--res_path", help = "test seg res path", default='../data/test_res.txt')
   argparser.add_argument("--gcnn", action='store_true', help="whether to use gated cnn")
   argparser.add_argument("--cnn", action='store_true', help="whether to use cnn")
   argparser.add_argument("--lstm", action='store_true', help="whether to use lstm")
   argparser.add_argument("--dilated", action='store_true', help="whether to use dialted CNN")
   argparser.add_argument("--sru", action='store_true', help="whether to use SRU")
   argparser.add_argument("--adam", action='store_true', help="whether to use adam")
+  argparser.add_argument("--model_save_path", type=str, required=True, help="path to save model", default='../data/model.pkl')
   argparser.add_argument("--path", type=str, required=True, help="path to corpus directory", default='../data')
   argparser.add_argument("--unigram_embedding", type=str, required=True, help="unigram word vectors", default='../data/unigram_100.embed')
   argparser.add_argument("--bigram_embedding", type=str, required=True, help="bigram word vectors", default='../data/bigram_100.embed')
@@ -359,3 +453,4 @@ if __name__ == "__main__":
   args = argparser.parse_args()
   print (args)
   main(args)
+

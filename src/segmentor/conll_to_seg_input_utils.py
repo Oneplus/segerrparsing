@@ -1,12 +1,12 @@
 # coding: utf-8
-# 将conll格式的数据变为segmentor输入的格式
+# convert the conll format to the format used as the segmentor input
 import argparse
 
 def data_every_conll_utils(sentence):
     """
-    将每个sentence进行处理，得到的结果返回
-    :param sentence:  sentence的conll格式
-    :return:   type:str like 我 爱 你们  S S BE
+    process every sentence
+    :param sentence:  sentence's conll format
+    :return:   type:str
     """
     tag = []
     character = []
@@ -43,12 +43,12 @@ def data_every_conll_utils(sentence):
 
 def data_utils(args):
     """
-    :param args:  命令参数
+    :param args:
     :return:
     """
     conll_path = args.conll_path
     type = ""
-    if conll_path.find("test") != -1:  # 不等于-1，说明找到了test
+    if conll_path.find("test") != -1:  #  not equal -1 represents finding the substring "test"
         type = "test.txt"
     elif conll_path.find("train") != -1:
         type = "train.txt"

@@ -119,7 +119,7 @@ class ClassifyLayer(nn.Module):
     indices = Variable(torch.LongTensor(self._get_indices(y)))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
-      tag_scores = F.log_softmax(tag_scores)  # tag_scores经过一个log_softmax负log
+      tag_scores = F.log_softmax(tag_scores)  # through the log_softmax
     #print tag_scores
     _, tag_result = torch.max(tag_scores, 1)
 
@@ -131,10 +131,12 @@ class ClassifyLayer(nn.Module):
 class EmbeddingLayer(nn.Module):
   def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
     super(EmbeddingLayer, self).__init__()
+
     word2id = {}
+
     if embs is not None:
       embwords, embvecs = embs
-      for word in embwords:  # 这里是将embedding的词填入到词表中字典中去
+      for word in embwords:  # put the embedding's word to dict represented word2id
         assert word not in word2id, "Duplicate words in pre-trained embeddings"
         word2id[word] = len(word2id)
 
@@ -162,10 +164,11 @@ class EmbeddingLayer(nn.Module):
     self.embedding = nn.Embedding(self.n_V, n_d, padding_idx = self.padid)
     self.embedding.weight.data.uniform_(-0.25, 0.25)
 
-    if embs is not None:  # 当pre-voc不是空的时候
+    self.id2word = {id:word for word, id in self.word2id.items()}
+    if embs is not None:
       weight  = self.embedding.weight
       weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
-      logging.info("embedding shape: {}".format(weight.size()))  # 这里打印embedding的shape，代表总共多少行，和embedding的大小作为列
+      logging.info("embedding shape: {}".format(weight.size()))
 
     if normalize:
       weight = self.embedding.weight
@@ -176,6 +179,7 @@ class EmbeddingLayer(nn.Module):
 
     if fix_emb:
       self.embedding.weight.requires_grad = False
+
 
   def forward(self, input):
     return self.embedding(input)
