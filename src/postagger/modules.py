@@ -1,10 +1,14 @@
+#!/usr/bin/env python
 import sys
-
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from compiler.ast import flatten
 from torch.autograd import Variable
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
+
 
 def deep_iter(x):
   if isinstance(x, list) or isinstance(x, tuple):
@@ -14,16 +18,18 @@ def deep_iter(x):
   else:
     yield x
 
+
 class MultiLayerCNN(nn.Module):
-  def __init__(self, n_in, hidden_dim, depth, dropout):
+  def __init__(self, n_in, hidden_dim, depth, dropout, use_cuda=True):
     super(MultiLayerCNN, self).__init__()
     self.conv2d_layer = []
-    self.conv2d_layer.append(nn.Conv2d(1, hidden_dim, (5, n_in), padding = (2, 0)))
+    self.conv2d_layer.append(nn.Conv2d(1, hidden_dim, (3, n_in), padding=(1, 0)))
     for i in range(depth - 1):
-      self.conv2d_layer.append(nn.Conv2d(1, hidden_dim, (5, hidden_dim), padding = (2, 0)))
-    for i in range(depth):
-      self.conv2d_layer[i].cuda()
-    self.n_in = n_in 
+      self.conv2d_layer.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding=(1, 0)))
+    if use_cuda:
+      for i in range(depth):
+        self.conv2d_layer[i].cuda()
+    self.n_in = n_in
     self.dropout = dropout
 
   def forward(self, x):
@@ -34,19 +40,21 @@ class MultiLayerCNN(nn.Module):
       x = F.dropout(x, self.dropout, self.training)
     return x
 
+
 class GatedCNN(nn.Module):
-  def __init__(self, n_in, hidden_dim, depth, dropout):
+  def __init__(self, n_in, hidden_dim, depth, dropout, use_cuda=True):
     super(GatedCNN, self).__init__()
     self.conv2d_W = []
     self.conv2d_V = []
-    self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (5, n_in), padding = (2, 0)))
-    self.conv2d_V.append(nn.Conv2d(1, hidden_dim, (5, n_in), padding = (2, 0)))
+    self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, n_in), padding=(1, 0)))
+    self.conv2d_V.append(nn.Conv2d(1, hidden_dim, (3, n_in), padding=(1, 0)))
     for i in range(depth - 1):
-      self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (5, hidden_dim), padding = (2, 0)))
-      self.conv2d_V.append(nn.Conv2d(1, hidden_dim, (5, hidden_dim), padding = (2, 0)))
-    for i in range(depth):
-      self.conv2d_W[i].cuda()
-      self.conv2d_V[i].cuda()
+      self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding=(1, 0)))
+      self.conv2d_V.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding=(1, 0)))
+    if use_cuda:
+      for i in range(depth):
+        self.conv2d_W[i].cuda()
+        self.conv2d_V[i].cuda()
     self.n_in = n_in 
     self.dropout = dropout
 
@@ -61,15 +69,17 @@ class GatedCNN(nn.Module):
 
 
 class DilatedCNN(nn.Module):
-  def __init__(self, n_in, hidden_dim, depth, dropout):
+  def __init__(self, n_in, hidden_dim, depth, dropout, use_cuda=True):
     super(DilatedCNN, self).__init__()
     self.n_dilated_layer = 5
     self.conv_1 = nn.Conv2d(1, hidden_dim, (1, n_in))
-    self.conv_1.cuda()
+    if use_cuda:
+      self.conv_1.cuda()
     self.conv2d_W = []
     for i in range(depth):
-      self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding = (pow(2, i), 0), dilation = (pow(2, i), 1)))
-      self.conv2d_W[-1].cuda()
+      self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding=(pow(2, i), 0), dilation=(pow(2, i), 1)))
+      if use_cuda:
+        self.conv2d_W[-1].cuda()
     self.n_in = n_in
     self.dropout = dropout
     self.depth = depth
@@ -85,13 +95,14 @@ class DilatedCNN(nn.Module):
       inputs.append(x)
       feat = feat + x
     return feat
-    return inputs[-1]
+
 
 class ClassifyLayer(nn.Module):
-  def __init__(self, n_in, tag_size):
+  def __init__(self, n_in, tag_size, use_cuda=False):
     super(ClassifyLayer, self).__init__()
     self.hidden2tag = nn.Linear(n_in, tag_size)
     self.n_in = n_in
+    self.use_cuda = use_cuda
 
   def _get_indices(self, y):
     indices = []
@@ -110,19 +121,21 @@ class ClassifyLayer(nn.Module):
     return tag_list
 
   def forward(self, x, y):
-    tag_vec = Variable(torch.LongTensor(flatten(y))).cuda()
-    indices = Variable(torch.LongTensor(self._get_indices(y))).cuda()
+    tag_vec = Variable(torch.LongTensor(flatten(y))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(flatten(y)))
+    indices = Variable(torch.LongTensor(self._get_indices(y))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(self._get_indices(y)))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
       tag_scores = F.log_softmax(tag_scores)
-    #print tag_scores
     _, tag_result = torch.max(tag_scores, 1)
 
     if self.training:
-      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average = False)
+      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average=False)
     else:
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
-    
+
+
 class EmbeddingLayer(nn.Module):
   def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
     super(EmbeddingLayer, self).__init__()
@@ -133,9 +146,9 @@ class EmbeddingLayer(nn.Module):
         assert word not in word2id, "Duplicate words in pre-trained embeddings"
         word2id[word] = len(word2id)
 
-      sys.stdout.write("{} pre-trained word embeddings loaded.\n".format(len(word2id)))
+      logging.info("{} pre-trained word embeddings loaded.".format(len(word2id)))
       if n_d != len(embvecs[0]):
-        sys.stdout.write("[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.\n".format(
+        logging.warning("[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.".format(
           n_d, len(embvecs[0]), len(embvecs[0])
           ))
         n_d = len(embvecs[0])
@@ -158,9 +171,9 @@ class EmbeddingLayer(nn.Module):
     self.embedding.weight.data.uniform_(-0.25, 0.25)
 
     if embs is not None:
-      weight  = self.embedding.weight
+      weight = self.embedding.weight
       weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
-      sys.stdout.write("embedding shape: {}\n".format(weight.size()))
+      logging.info("embedding shape: {}".format(weight.size()))
 
     if normalize:
       weight = self.embedding.weight
@@ -174,4 +187,3 @@ class EmbeddingLayer(nn.Module):
 
   def forward(self, input):
     return self.embedding(input)
-
