@@ -10,16 +10,16 @@ def split_data(args):
     :return:
     """
     origin_path = args.origin_data_path
-    fp_origin = open(origin_path, encoding='utf-8')
+    fp_origin = open(origin_path)
     path_directory = args.path
 
     origin_content = fp_origin.read().strip().split('\n')
     number = len(origin_content)
 
     shuffle_content = random.shuffle(origin_content)
-    name_str_train = "train_fold_"
-    name_str_test = "test_fold_"
-    print(number)
+    name_str_train = "train"
+    name_str_test = "test"
+    # print(number)
     interval1 = int(number) // 5
     for i in range(5):
         if i == 4:
@@ -30,10 +30,10 @@ def split_data(args):
         train_data = origin_content[0:(i*interval1)]+origin_content[end_interval:number]
         str_test = '\n'.join(test_data)
         str_train = '\n'.join(train_data)
-        train_path = path_directory+name_str_train+str(i+1)+".txt"
-        test_path = path_directory+name_str_test+str(i+1)+".txt"
-        fp_train = open(train_path, 'w', encoding='utf-8')
-        fp_test = open(test_path, 'w', encoding='utf-8')
+        train_path = path_directory+"fold_" + str(i+1) + "/" + name_str_train+".txt"
+        test_path = path_directory+"fold_" + str(i+1) + "/" + name_str_test+".txt"
+        fp_train = open(train_path, 'w')
+        fp_test = open(test_path, 'w')
         fp_train.write(str_train)
         fp_test.write(str_test)
         fp_train.close()
