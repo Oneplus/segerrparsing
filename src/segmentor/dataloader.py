@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 import gzip
 import os
 import sys
@@ -28,10 +30,10 @@ def read_corpus(path):
   with open(path) as fin:
     for line in fin:
       text, label = line.split('\t')
-      unigram.append(text.split())
+      unigram.append(text.split())  # add unigram
       
       bigram.append([])
-      bigram[-1].append('<s>' + unigram[-1][0])
+      bigram[-1].append('<s>' + unigram[-1][0])  # representated the current added list
       for i in range(len(unigram[-1]) - 1):
         bigram[-1].append(unigram[-1][i] + unigram[-1][i + 1])
       bigram[-1].append(unigram[-1][-1] + '</s>')
@@ -53,24 +55,24 @@ def read_data(path, seed = 1234):
 
 def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>'):
   lst = range(len(x[0]))
-  lst = sorted(lst, key=lambda i: -len(y[i]))
+  lst = sorted(lst, key=lambda i: -len(y[i]))  # descent sort
 
   x = ([x[0][i] for i in lst], [x[1][i] for i in lst])
   y = [ y[i] for i in lst ]    
 
   oov_id = uni_map2id[oov]
-  uni = pad(x[0])
+  uni = pad(x[0])  # now, uni is the result after padding
   uni_length = len(uni[0])
   batch_size = len(uni)
-  uni = [ uni_map2id.get(w, oov_id) for seq in uni for w in seq ]
+  uni = [ uni_map2id.get(w, oov_id) for seq in uni for w in seq ]  # convert to single list
   uni = torch.LongTensor(uni)
 
   assert uni.size(0) == uni_length * batch_size
 
   oov_id = bi_map2id[oov]
-  bi = pad(x[1])
+  bi = pad(x[1])  # bi is the result after padding
   bi_length = len(bi[0])
-  bi = [ bi_map2id.get(w, oov_id) for seq in bi for w in seq ]
+  bi = [ bi_map2id.get(w, oov_id) for seq in bi for w in seq ]  # represented by id
   bi = torch.LongTensor(bi)
 
   assert bi.size(0) == bi_length * batch_size
@@ -87,21 +89,21 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None, sort=True
   if sort:
     lst = sorted(lst, key=lambda i: -len(y[i]))
 
-  x = ([x[0][i] for i in lst], [x[1][i] for i in lst])
+  x = ([x[0][i] for i in lst], [x[1][i] for i in lst])  # descend by len(sentence)
   y = [ y[i] for i in lst ]
 
   sum_len = 0.0
   batches_x = [ ]
   batches_y = [ ]
   size = batch_size
-  nbatch = (len(x[0])-1) // size + 1
+  nbatch = (len(x[0])-1) // size + 1  # the number of batch
   for i in range(nbatch):
     bx, by = create_one_batch((x[0][i*size:(i+1)*size], x[1][i*size:(i+1)*size]), y[i*size:(i+1)*size], uni_map2id, bi_map2id)
     sum_len += len(by[0])
     batches_x.append(bx)
     batches_y.append(by)
 
-  if sort:
+  if sort:  # fixme 这个是干嘛的？？？，随机化训练
     perm = range(nbatch)
     random.shuffle(perm)
     batches_x = [ batches_x[i] for i in perm ]
@@ -128,8 +130,8 @@ def load_embedding_txt(path):
       if line:
         parts = line.split()
         words.append(parts[0])
-        vals += [ float(x) for x in parts[1:] ]
-  return words, np.asarray(vals).reshape(len(words),-1)
+        vals += [ float(x) for x in parts[1:] ]  # equal to append
+  return words, np.asarray(vals).reshape(len(words),-1)  # reshape
 
 def load_embedding(path):
   if path.endswith(".npz"):
