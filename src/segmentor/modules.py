@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from compiler.ast import flatten
 from torch.autograd import Variable
 
+use_cuda = torch.cuda.is_available()
+
 import logging
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s [INFO] %(message)s')
 
@@ -27,7 +29,11 @@ class MultiLayerCNN(nn.Module):
     for i in range(depth - 1):
       self.conv2d_layer.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding = (1, 0)))
     for i in range(depth):
-      self.conv2d_layer[i]
+      if use_cuda:
+        self.conv2d_layer[i].cuda()
+      else:
+        self.conv2d_layer[i]
+
     self.n_in = n_in 
     self.dropout = dropout
 
@@ -50,8 +56,12 @@ class GatedCNN(nn.Module):
       self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding = (1, 0)))
       self.conv2d_V.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding = (1, 0)))
     for i in range(depth):
-      self.conv2d_W[i]
-      self.conv2d_V[i]
+      if use_cuda:
+        self.conv2d_W[i].cuda()
+        self.conv2d_V[i].cuda()
+      else:
+        self.conv2d_W[i]
+        self.conv2d_V[i]
     self.n_in = n_in 
     self.dropout = dropout
 
@@ -70,11 +80,17 @@ class DilatedCNN(nn.Module):
     super(DilatedCNN, self).__init__()
     self.n_dilated_layer = 5
     self.conv_1 = nn.Conv2d(1, hidden_dim, (1, n_in))
-    self.conv_1
+    if use_cuda:
+      self.conv_1.cuda()
+    else:
+      self.conv_1
     self.conv2d_W = []
     for i in range(depth):
       self.conv2d_W.append(nn.Conv2d(1, hidden_dim, (3, hidden_dim), padding = (pow(2, i), 0), dilation = (pow(2, i), 1)))
-      self.conv2d_W[-1]
+      if use_cuda:
+        self.conv2d_W[-1].cuda()
+      else:
+        self.conv2d_W[-1]
     self.n_in = n_in
     self.dropout = dropout
     self.depth = depth
@@ -115,8 +131,12 @@ class ClassifyLayer(nn.Module):
     return tag_list
 
   def forward(self, x, y):
-    tag_vec = Variable(torch.LongTensor(flatten(y)))
-    indices = Variable(torch.LongTensor(self._get_indices(y)))
+    if use_cuda:
+      tag_vec = Variable(torch.LongTensor(flatten(y))).cuda()
+      indices = Variable(torch.LongTensor(self._get_indices(y))).cuda()
+    else:
+      tag_vec = Variable(torch.LongTensor(flatten(y)))
+      indices = Variable(torch.LongTensor(self._get_indices(y)))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
       tag_scores = F.log_softmax(tag_scores)  # through the log_softmax

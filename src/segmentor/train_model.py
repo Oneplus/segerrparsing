@@ -23,6 +23,8 @@ import modules
 import logging
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s [INFO] %(message)s')
 
+use_cuda = torch.cuda.is_available()
+
 torch.manual_seed(31415926)
 random.seed(31415926)
 tag_to_ix = {'B': 0, 'I': 1, 'E': 2, 'S': 3}
@@ -84,15 +86,25 @@ class Model(nn.Module):
 
   def forward(self, x, y):
     
-    start_time = time.time()    
-    unigram = Variable(x[0])
+    start_time = time.time()
+    if use_cuda:
+        unigram = Variable(x[0]).cuda()
+    else:
+        unigram = Variable(x[0])
 
-    lb_indices = Variable(torch.LongTensor(range(x[1].size(1))[:-1]))
-    rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:]))
+    if use_cuda:
+        lb_indices = Variable(torch.LongTensor(range(x[1].size(1))[:-1])).cuda()
+        rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:])).cuda()
+    else:
+        lb_indices = Variable(torch.LongTensor(range(x[1].size(1))[:-1]))
+        rb_indices = Variable(torch.LongTensor(range(x[1].size(1))[1:]))
     
-
-    left_bigram = torch.index_select(Variable(x[1]), 1, lb_indices)  # expect the end
-    right_bigram = torch.index_select(Variable(x[1]), 1, rb_indices)  # expect the start
+    if use_cuda:
+        left_bigram = torch.index_select(Variable(x[1]).cuda(), 1, lb_indices)  # expect the end
+        right_bigram = torch.index_select(Variable(x[1]).cuda(), 1, rb_indices)  # expect the start
+    else:
+        left_bigram = torch.index_select(Variable(x[1]), 1, lb_indices)  # expect the end
+        right_bigram = torch.index_select(Variable(x[1]), 1, rb_indices)  # expect the start
 
     unigram = self.uni_emb_layer(unigram)
     left_bigram = self.bi_emb_layer(left_bigram)
@@ -385,7 +397,10 @@ def main(args):
     bi_emb_layer.word2id, 
   )
 
-  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses)
+  if use_cuda:
+      model = Model(args, uni_emb_layer, bi_emb_layer, nclasses).cuda()
+  else:
+      model = Model(args, uni_emb_layer, bi_emb_layer, nclasses)
 
   if args.type == 'test':
       predict_model(model, uni_emb_layer, args.model_save_path, test_x, test_y, args.res_path)
@@ -393,7 +408,7 @@ def main(args):
       need_grad = lambda x: x.requires_grad
       if args.adam:
         optimizer = optim.Adam(
-          model.parameters(),
+          #model.parameters(),
           filter(need_grad, model.parameters()),
           lr = args.lr
         )

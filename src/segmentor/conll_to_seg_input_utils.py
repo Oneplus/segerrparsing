@@ -64,8 +64,10 @@ def data_utils(args):
     index = i
     output_path = output_path[:index+1]+type
 
-    fp_conll = open(conll_path, encoding='utf-8')
-    fp_output = open(output_path, 'w', encoding='utf-8')
+    output_path = output_path.replace('data', 'outputs')
+
+    fp_conll = open(conll_path)
+    fp_output = open(output_path, 'w')
 
     conll = fp_conll.read().strip().split('\n\n')
     res_output = ""
@@ -82,8 +84,8 @@ def data_utils(args):
 
 def main():
     argparser = argparse.ArgumentParser("conll_to_seg_input_utils")
-    argparser.add_argument('--conll_path', default='../data/CTB5.1-devel.gp.conll')
-    argparser.add_argument('--output_path', default='../data/output_seg.txt')
+    argparser.add_argument('--conll_path', default='../../data/CTB5.1-devel.gp.conll')
+    argparser.add_argument('--output_path', default='../../data/output_seg.txt')
 
     args = argparser.parse_args()
     data_utils(args)
