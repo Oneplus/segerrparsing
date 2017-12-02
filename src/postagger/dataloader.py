@@ -4,6 +4,8 @@ import random
 import codecs
 import numpy as np
 import torch
+import logging
+logging.basicConfig(level=logging.INFO, format = '%(asctime)s [%(levelname)s] %(message)s')
 
 
 def pad(sequences, pad_token='<pad>', pad_left=False):
@@ -28,12 +30,12 @@ def read_corpus(path):
   labels = []
   with codecs.open(path, 'r', encoding='utf-8') as fin:
     for line in fin:
-      terms = line.split()
+      terms = line.strip().split()
       data.append([])
       labels.append([])
       for term in terms:
-        data[-1].append(term.split('_')[0])
-        labels[-1].append(term.split('_')[1].replace('\n', ''))
+        data[-1].append(term.split(u'_')[0])
+        labels[-1].append(term.split(u'_')[1])
   return data, labels
 
 
@@ -55,10 +57,10 @@ def create_one_batch(x, y, map2id, oov='<oov>', use_cuda=False):
   x = pad(x)
   length = len(x[0])
   batch_size = len(x)
-  x = [ map2id.get(w, oov_id) for seq in x for w in seq ]
+  x = [map2id.get(w, oov_id) for seq in x for w in seq]
   x = torch.LongTensor(x)
   assert x.size(0) == length*batch_size
-  x = x.view(batch_size, length).t().contiguous()
+  x = x.view(batch_size, length).contiguous()
   if use_cuda:
     x = x.cuda()
   return x, y
@@ -81,7 +83,8 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=True, use_cuda=Fals
   size = batch_size
   nbatch = (len(x) - 1) // size + 1
   for i in range(nbatch):
-    bx, by = create_one_batch(x[i*size:(i+1)*size], y[i*size:(i+1)*size], map2id, use_cuda=use_cuda)
+    start_id, end_id = i * size, (i + 1) * size
+    bx, by = create_one_batch(x[start_id: end_id], y[start_id: end_id], map2id, use_cuda=use_cuda)
     sum_len += len(by[0])
     batches_x.append(bx)
     batches_y.append(by)
@@ -92,7 +95,7 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=True, use_cuda=Fals
     batches_x = [batches_x[i] for i in perm]
     batches_y = [batches_y[i] for i in perm]
 
-  sys.stdout.write("{} batches, avg len: {:.1f}\n".format(nbatch, sum_len/nbatch))
+  logging.info("{} batches, avg len: {:.1f}".format(nbatch, sum_len/nbatch))
   return batches_x, batches_y
 
 
@@ -102,16 +105,15 @@ def load_embedding_npz(path):
 
 
 def load_embedding_txt(path):
-  file_open = gzip.open if path.endswith(".gz") else open
   words = []
   vals = []
-  with file_open(path) as fin:
+  with codecs.open(path, 'r', encoding='utf-8') as fin:
     fin.readline()
     for line in fin:
       line = line.strip()
       if line:
         parts = line.split()
-        words.append(parts[0].decode('utf-8'))
+        words.append(parts[0])
         vals += [float(x) for x in parts[1:]]
   return words, np.asarray(vals).reshape(len(words), -1)
 

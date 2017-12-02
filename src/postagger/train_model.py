@@ -178,7 +178,7 @@ def train_model(epoch, model, optimizer,
   if valid_result > best_valid:
     best_valid = valid_result
     test_result = eval_model(niter, model, test_x, test_y)
-    logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}\n".format(
+    logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(
       epoch, niter,
       optimizer.param_groups[0]['lr'],
       test_result
@@ -204,13 +204,12 @@ def main(args):
   label_to_index(valid_y, label_to_ix)
   label_to_index(test_y, label_to_ix)
 
-  logging.info('# labels: {0}'.format(len(label_to_ix)))
-  logging.info('train: {0} {1}'.format(len(train_x), len(train_y)))
-  logging.info('valid: {0} {1}'.format(len(valid_x), len(valid_y)))
-  logging.info('test: {0} {1}'.format(len(test_x), len(test_y)))
-  logging.info('# tokens: train: {0} devel: {1} test: {2}'.format(sum([len(seq) for seq in train_y]),
-                                                                  sum([len(seq) for seq in valid_y]),
-                                                                  sum([len(seq) for seq in test_y])))
+  logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
+    len(train_y), len(valid_y), len(test_y)))
+  
+  logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
+    sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
+ 
   emb_layer = modules.EmbeddingLayer(args.d, data, fix_emb=False,
                                      embs=dataloader.load_embedding(args.word_embedding))
 
@@ -249,9 +248,9 @@ def main(args):
                                           best_valid, test_result)
     if args.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= args.lr_decay
-    print(model.eval_time)
-    print(model.emb_time)
-    print(model.classify_time)
+    logging.info('Total encoder time: ' + str(model.eval_time))
+    logging.info('Total embedding time: ' + str(model.emb_time))
+    logging.info('Total classify time: ' + str(model.classify_time))
 
   logging.info("best_valid: {:.6f}".format(best_valid))
   logging.info("test_err: {:.6f}".format(test_result))

@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 import sys
+import itertools
 import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from compiler.ast import flatten
 from torch.autograd import Variable
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
+
+
+def flatten(lst):
+  return list(itertools.chain.from_iterable(lst))
 
 
 def deep_iter(x):
@@ -167,7 +170,7 @@ class EmbeddingLayer(nn.Module):
     self.n_V, self.n_d = len(word2id), n_d
     self.oovid = word2id[oov]
     self.padid = word2id[pad]
-    self.embedding = nn.Embedding(self.n_V, n_d, padding_idx = self.padid)
+    self.embedding = nn.Embedding(self.n_V, n_d, padding_idx=self.padid)
     self.embedding.weight.data.uniform_(-0.25, 0.25)
 
     if embs is not None:
