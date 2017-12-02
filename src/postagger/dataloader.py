@@ -6,7 +6,7 @@ import random
 
 import numpy as np
 import torch
-
+use_cuda = torch.cuda.is_available()
 def pad(sequences, pad_token='<pad>', pad_left=False):
   ''' 
     input sequences is a list of text sequence [[str]]
@@ -32,9 +32,9 @@ def read_corpus(path):
   return data, labels
 
 def read_data(path, seed = 1234):
-  train_path = os.path.join(path, "train.txt")
-  valid_path = os.path.join(path, "valid.txt")
-  test_path = os.path.join(path, "test.txt")
+  train_path = os.path.join(path, "train_pos_test.txt")
+  valid_path = os.path.join(path, "valid_pos_test.txt")
+  test_path = os.path.join(path, "test_pos_test.txt")
   train_x, train_y = read_corpus(train_path)
   valid_x, valid_y = read_corpus(valid_path)
   test_x, test_y = read_corpus(test_path)
@@ -54,7 +54,10 @@ def create_one_batch(x, y, map2id, oov='<oov>'):
   x = [ map2id.get(w, oov_id) for seq in x for w in seq ]
   x = torch.LongTensor(x)
   assert x.size(0) == length*batch_size
-  return x.view(batch_size, length).t().contiguous().cuda(), y
+  if use_cuda:
+    return x.view(batch_size, length).t().contiguous().cuda(), y
+  else:
+    return x.view(batch_size, length).t().contiguous(), y
 
 # shuffle training examples and create mini-batches
 def create_batches(x, y, batch_size, map2id, perm=None, sort=True):

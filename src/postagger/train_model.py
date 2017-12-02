@@ -7,22 +7,24 @@ import time
 import random
 
 import numpy as np
+import itertools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-
+def flatten(lst):
+  return list(itertools.chain.from_iterable(lst))
 import torch.nn.utils.rnn as rnn
-#from compile.ast import flatten
+# from compile.ast import flatten
 
-import cuda_functional as MF
+# import cuda_functional as MF
 import dataloader
 import modules
 
 torch.manual_seed(31415926)
 random.seed(31415926)
-
+use_cuda = torch.cuda.is_available()
 
 class Model(nn.Module):
   def __init__(self, args, emb_layer, n_class):
@@ -80,7 +82,10 @@ class Model(nn.Module):
   def forward(self, x, y):
     
     start_time = time.time()
-    emb = self.emb_layer(Variable(x).cuda())
+    if use_cuda:
+      emb = self.emb_layer(Variable(x).cuda())
+    else:
+      emb = self.emb_layer(Variable(x))
 
     emb = F.dropout(emb, self.args.dropout, self.training)
 
@@ -89,7 +94,8 @@ class Model(nn.Module):
 
     start_time = time.time()
     if self.args.lstm or self.args.sru:
-      x = emb.permute(1, 0, 2)
+      x = emb.permute(0, 1, 2)
+      #print(x.size())
       output, hidden = self.encoder(x)
       output = output.permute(1, 0, 2)
     elif self.args.cnn or self.args.gcnn:
@@ -146,6 +152,7 @@ def train_model(epoch, model, optimizer,
   cnt = 0
   start_time = time.time()
   for x, y in zip(train_x, train_y):
+    print(x.size())
     niter += 1
     cnt += 1
     model.zero_grad()
@@ -218,6 +225,7 @@ def main(args):
     args.batch_size,
     emb_layer.word2id, 
   )
+   #print(1)
   valid_x, valid_y = dataloader.create_batches(
     valid_x, valid_y,
     args.batch_size,
@@ -228,14 +236,16 @@ def main(args):
     args.batch_size,
     emb_layer.word2id, 
   )
-
-  model = Model(args, emb_layer, nclasses).cuda()
+  if use_cuda:
+    model = Model(args, emb_layer, nclasses).cuda()
+  else:
+    model = Model(args, emb_layer, nclasses)
   
   need_grad = lambda x: x.requires_grad
   if args.adam:
     optimizer = optim.Adam(
-      model.parameters(),
-      #filter(need_grad, model.parameters()),
+      #model.parameters(),
+      filter(need_grad, model.parameters()),
       lr = args.lr
     )
   else:
