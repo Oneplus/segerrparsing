@@ -1,25 +1,11 @@
 #!/usr/bin/env python
-import sys
-import itertools
 import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from utils import flatten, deep_iter
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
-
-
-def flatten(lst):
-  return list(itertools.chain.from_iterable(lst))
-
-
-def deep_iter(x):
-  if isinstance(x, list) or isinstance(x, tuple):
-    for u in x:
-      for v in deep_iter(u):
-        yield v
-  else:
-    yield x
 
 
 class MultiLayerCNN(nn.Module):
@@ -58,7 +44,7 @@ class GatedCNN(nn.Module):
       for i in range(depth):
         self.conv2d_W[i].cuda()
         self.conv2d_V[i].cuda()
-    self.n_in = n_in 
+    self.n_in = n_in
     self.dropout = dropout
 
   def forward(self, x):
@@ -140,33 +126,22 @@ class ClassifyLayer(nn.Module):
 
 
 class EmbeddingLayer(nn.Module):
-  def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
+  def __init__(self, n_d, word2id, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
     super(EmbeddingLayer, self).__init__()
-    word2id = {}
     if embs is not None:
       embwords, embvecs = embs
-      for word in embwords:
-        assert word not in word2id, "Duplicate words in pre-trained embeddings"
-        word2id[word] = len(word2id)
+      # for word in embwords:
+      #  assert word not in word2id, "Duplicate words in pre-trained embeddings"
+      #  word2id[word] = len(word2id)
 
       logging.info("{} pre-trained word embeddings loaded.".format(len(word2id)))
       if n_d != len(embvecs[0]):
         logging.warning("[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.".format(
-          n_d, len(embvecs[0]), len(embvecs[0])
-          ))
+          n_d, len(embvecs[0]), len(embvecs[0])))
         n_d = len(embvecs[0])
 
-    for w in deep_iter(words):
-      if w not in word2id:
-        word2id[w] = len(word2id)
-
-    if oov not in word2id:
-      word2id[oov] = len(word2id)
-
-    if pad not in word2id:
-      word2id[pad] = len(word2id)
-
     self.word2id = word2id
+    self.id2word = {i: word for word, i in word2id.items()}
     self.n_V, self.n_d = len(word2id), n_d
     self.oovid = word2id[oov]
     self.padid = word2id[pad]
@@ -180,7 +155,7 @@ class EmbeddingLayer(nn.Module):
 
     if normalize:
       weight = self.embedding.weight
-      norms = weight.data.norm(2,1)
+      norms = weight.data.norm(2, 1)
       if norms.dim() == 1:
         norms = norms.unsqueeze(1)
       weight.data.div_(norms.expand_as(weight.data))

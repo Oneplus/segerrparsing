@@ -4,7 +4,7 @@ import argparse
 import codecs
 
 
-def convert_every_sentence(word, tags):
+def bies_to_segmentation(word, tags):
     """
     convert every sentence
     :param word:  str
@@ -26,40 +26,20 @@ def convert_every_sentence(word, tags):
             single_word += word[index_tag]
             res.append(single_word)
             single_word = ""
-    str_res = ' '.join(res)
-    str_res += '\n'
-    return str_res
-
-
-def convert_function(args):
-    """
-    :param args:
-    :return:
-    """
-    res_sentence = ""
-    tag_path = args.tag_path
-    sentence_path = args.sentence_path
-    fp_resources = codecs.open(tag_path, encoding='utf-8')
-    fp_target = codecs.open(sentence_path, 'w', encoding='utf-8')
-
-    resources = fp_resources.read().strip().split('\n')
-    for index, value in enumerate(resources):
-        word, tags = value.split('\t')
-        res_sentence += convert_every_sentence(word, tags)
-
-    fp_target.write(res_sentence)
-
-    fp_resources.close()
-    fp_target.close()
+    return ' '.join(res)
 
 
 def main():
     cmd = argparse.ArgumentParser("convert the tag representation to sentence")
-    cmd.add_argument("--tag_path", help="the path of tag representation", default='../data/test_res.txt')
-    cmd.add_argument("--sentence_path", help="the path of sentence representation", default='../data/sentence.txt')
+    cmd.add_argument("--input", help="the path of tag representation", default='../data/test_res.txt')
+    cmd.add_argument("--output", help="the path of sentence representation", default='../data/sentence.txt')
 
     args = cmd.parse_args()
-    convert_function(args)
+    fpo = codecs.open(args.output, 'w', encoding='utf-8')
+
+    for line in codes.open(args.input, 'r', encoding='utf-8'):
+        chars, tags = line.strip().split('\t')
+        print(bies_to_segmentation(chars, tags), file=fpo)
 
 
 if __name__ == '__main__':
