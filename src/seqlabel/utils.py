@@ -32,8 +32,9 @@ def tag2intervals(tag):
     else:
       return 3
 
-  if isinstance(tag[0], str):
+  if isinstance(tag[0], str) or isinstance(tag[0], unicode):
     tag = [tag2id(t) for t in tag]
+  assert isinstance(tag[0], int)
   intervals = []
   l = len(tag)
   i = 0
