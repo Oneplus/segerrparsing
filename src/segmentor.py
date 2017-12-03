@@ -15,10 +15,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-import torch.nn.utils.rnn as rnn
 from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer
 from seqlabel.dataloader import load_embedding, pad
-from seqlabel.utils import flatten, deep_iter, dict2namedtuple
+from seqlabel.utils import flatten, deep_iter, dict2namedtuple, f_score
 try:
   import seqlabel.cuda_functional as MF
 except:
@@ -217,52 +216,6 @@ class Model(nn.Module):
     return output, loss
 
 
-def get_intervals(tag):
-  intervals = []
-  l = len(tag)
-  i = 0
-  while i < l:
-    if tag[i] == 2 or tag[i] == 3:
-      intervals.append((i, i))
-      i += 1
-      continue
-    j = i + 1
-    while True:
-      if j == l or tag[j] == 0 or tag[j] == 3:
-        intervals.append((i, j - 1))
-        i = j
-        break
-      elif tag[j] == 2:
-        intervals.append((i, j))
-        i = j + 1
-        break
-      else:
-        j += 1
-  return intervals
-
-
-def evaluate(gold, predication):
-  assert len(gold) == len(predication)
-  tp, fp, fn = 0, 0, 0,
-  for gold_, pred_ in zip(gold, predication):
-    gold_intervals = get_intervals(gold_)
-    pred_intervals = get_intervals(pred_)
-    seg = set()
-    for interval in gold_intervals:
-      seg.add(interval)
-      fn += 1
-    for interval in pred_intervals:
-      if interval in seg:
-        tp += 1
-        fn -= 1
-      else:
-        fp += 1
-  p = 0 if tp == 0 else 1. * tp / (tp + fp)
-  r = 0 if tp == 0 else 1. * tp / (tp + fn)
-  f = 0 if p * r == 0 else 2. * p * r / (p + r)
-  return p, r, f
-
-
 def eval_model(niter, model, valid_x, valid_y):
   start_time = time.time()
   model.eval()
@@ -276,7 +229,7 @@ def eval_model(niter, model, valid_x, valid_y):
   model.train()
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
-  p, r, f = evaluate(gold, pred)
+  p, r, f = f_score(gold, pred)
   logging.info("**Evaluate result: acc = {:.6f}, P = {:.6f}, R = {:.6f}, F = {:.6f} time = {}".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
   return f
@@ -503,7 +456,7 @@ def test():
 
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
-  p, r, f = evaluate(gold, pred)
+  p, r, f = f_score(gold, pred)
   logging.info("**Evaluate result: acc = {:.6f}, P = {:.6f}, R = {:.6f}, F = {:.6f} time = {}".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
 

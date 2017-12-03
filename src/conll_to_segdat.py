@@ -41,7 +41,7 @@ def main():
                         chars.append(ch)
                         if i == 0:
                             tags.append('B')
-                        elif i == len(chars):
+                        elif i == len(word) - 1:
                             tags.append('E')
                         else:
                             tags.append('I')

@@ -307,6 +307,7 @@ def train():
     model = model.cuda()
 
   need_grad = lambda x: x.requires_grad
+
   if args.optimizer.lower() == 'adam':
     optimizer = optim.Adam(filter(need_grad, model.parameters()), lr=args.lr)
   else:
