@@ -364,8 +364,8 @@ def train():
   test_x, test_y = create_batches(test_x, test_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
                                   use_cuda=use_cuda)
 
-  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses, use_cuda = use_cuda)
-  if args.cuda:
+  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses, use_cuda=use_cuda)
+  if use_cuda:
     model = model.cuda()
 
   need_grad = lambda x: x.requires_grad
@@ -468,3 +468,6 @@ if __name__ == "__main__":
     test()
   else:
     print('Usage: {0} [train|test] [options]'.format(sys.argv[0]), file=sys.stderr)
+
+
+
