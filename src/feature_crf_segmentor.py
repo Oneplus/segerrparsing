@@ -5,13 +5,17 @@ import argparse
 import codecs
 import pycrfsuite
 from seqlabel.utils import f_score
+from seqlabel.chinese import chartype
 
 
 # copied from CRFsuite example
 def word2features(sent, i):
   ch = sent[i][0]
+  cht = chartype(ch)
   prev_ch = sent[i - 1][0] if i > 0 else u'<BOS>'
   next_ch = sent[i + 1][0] if i < len(sent) - 1 else u'<EOS>'
+  prev_cht = chartype(prev_ch)
+  next_cht = chartype(next_ch)
   prev_ch2 = sent[i - 2][0] if i > 1 else u'<BOS>'
   next_ch2 = sent[i + 2][0] if i < len(sent) - 2 else u'<EOS>'
   features = [
@@ -24,9 +28,9 @@ def word2features(sent, i):
     u'c-1={0}|c0={1}'.format(prev_ch, ch),
     u'c0={0}|c+1={1}'.format(ch, next_ch),
     u'c+1={0}|c+2={1}'.format(next_ch, next_ch2),
-    u'c-2={0}|c-1={1}|c0={2}'.format(prev_ch2, prev_ch, ch),
-    u'c-1={0}|c0={1}|c+1={2}'.format(prev_ch, ch, next_ch),
-    u'c0={0}|c+1={1}|c+2={2}'.format(ch, next_ch, next_ch2),
+    u'ct-1={0}'.format(prev_cht),
+    u'ct={0}'.format(cht),
+    u'ct+1={0}'.format(next_cht)
   ]
 
   return features
@@ -59,8 +63,11 @@ def load_corpus(filename):
 def main():
   cmd = argparse.ArgumentParser('A feature CRF baseline for word segmentation.')
   cmd.add_argument('--do_train', action='store_true', default=False, help='do training.')
-  cmd.add_argument('--train', required=True, help='the path to the training file.')
-  cmd.add_argument('--devel', required=True, help='the path to the development file.')
+  cmd.add_argument('--train', help='the path to the training file.')
+  cmd.add_argument('--devel', help='the path to the development file.')
+  cmd.add_argument('--algorithm', default='lbfgs', help='the learning algorithm')
+  cmd.add_argument('--l1', type=float, default=0., help='the l1 tense')
+  cmd.add_argument('--l2', type=float, default=1e-3, help='the l2 tense')
   cmd.add_argument('--output', help='the path to the output file.')
   cmd.add_argument('--model', required=True, help='the path to the model file.')
   args = cmd.parse_args()
@@ -71,27 +78,27 @@ def main():
     y_train = [sent2labels(s) for s in train_sents]
     print('# training data: {0}'.format(len(x_train)))
 
-  devel_sents = load_corpus(args.devel)
-  x_test = [sent2features(s) for s in devel_sents]
-  y_test = [sent2labels(s) for s in devel_sents]
-  print('# test data: {0}'.format(len(x_test)))
-
-  if args.do_train:
-    trainer = pycrfsuite.Trainer(algorithm='lbfgs', verbose=True)
+    trainer = pycrfsuite.Trainer(algorithm=args.algorithm, verbose=True)
 
     for xseq, yseq in zip(x_train, y_train):
       trainer.append(xseq, yseq)
 
-    trainer.set_params({
-      'c1': 0.0,  # coefficient for L1 penalty
-      'c2': 1e-5,  # coefficient for L2 penalty
-      'max_iterations': 500,  # stop earlier
-      # include transitions that are possible, but not observed
-      'feature.possible_transitions': True
-    })
+    if args.algorithm == 'lbfgs':
+      trainer.set_params({'c1': args.l1, 'c2': args.l2,
+                          'feature.possible_states': True,
+                          'feature.possible_transitions': True})
+    else:
+      trainer.set_params({'c2': args.l2,
+                          'feature.possible_states': True,
+                          'feature.possible_transitions': True})
 
     print(trainer.params())
     trainer.train(args.model)
+
+  devel_sents = load_corpus(args.devel)
+  x_test = [sent2features(s) for s in devel_sents]
+  y_test = [sent2labels(s) for s in devel_sents]
+  print('# test data: {0}'.format(len(x_test)))
 
   tagger = pycrfsuite.Tagger()
   tagger.open(args.model)

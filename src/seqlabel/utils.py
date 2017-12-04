@@ -36,45 +36,31 @@ def tag2intervals(tag):
     tag = [tag2id(t) for t in tag]
   assert isinstance(tag[0], int)
   intervals = []
-  l = len(tag)
-  i = 0
-  while i < l:
-    if tag[i] == 2 or tag[i] == 3:
-      intervals.append((i, i))
-      i += 1
-      continue
-    j = i + 1
-    while True:
-      if j == l or tag[j] == 0 or tag[j] == 3:
-        intervals.append((i, j - 1))
-        i = j
-        break
-      elif tag[j] == 2:
-        intervals.append((i, j))
-        i = j + 1
-        break
-      else:
-        j += 1
+  start = None
+  for i, t in enumerate(tag):
+    if t == 0 or t == 3:
+      if start is not None:
+        intervals.append((start, i - 1))
+      start = i
+  intervals.append((start, len(tag) - 1))
   return intervals
 
 
 def f_score(gold, predication):
   assert len(gold) == len(predication)
-  tp, fp, fn = 0, 0, 0,
+  n_corr, n_gold, n_pred = 0, 0, 0
   for gold_, pred_ in zip(gold, predication):
     gold_intervals = tag2intervals(gold_)
     pred_intervals = tag2intervals(pred_)
     seg = set()
     for interval in gold_intervals:
       seg.add(interval)
-      fn += 1
     for interval in pred_intervals:
       if interval in seg:
-        tp += 1
-        fn -= 1
-      else:
-        fp += 1
-  p = 0 if tp == 0 else 1. * tp / (tp + fp)
-  r = 0 if tp == 0 else 1. * tp / (tp + fn)
+        n_corr += 1
+    n_gold += len(gold_intervals)
+    n_pred += len(pred_intervals)
+  p = 0 if n_pred == 0 else 1. * n_corr / n_pred
+  r = 0 if n_gold == 0 else 1. * n_corr / n_gold
   f = 0 if p * r == 0 else 2. * p * r / (p + r)
   return p, r, f
