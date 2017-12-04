@@ -364,7 +364,7 @@ def train():
   test_x, test_y = create_batches(test_x, test_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
                                   use_cuda=use_cuda)
 
-  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses)
+  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses, use_cuda = use_cuda)
   if args.cuda:
     model = model.cuda()
 
