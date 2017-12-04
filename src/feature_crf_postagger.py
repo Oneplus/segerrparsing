@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
+from __future__ import division
 import sys
 import argparse
 import codecs
 import pycrfsuite
-from seqlabel.utils import f_score
+from seqlabel.utils import flatten
 
 
 # copied from CRFsuite example
@@ -56,38 +57,40 @@ def load_corpus(filename):
 
 def main():
   cmd = argparse.ArgumentParser('A feature CRF baseline for word segmentation.')
+  cmd.add_argument('--do_train', action='store_true', default=False, help='do training.')
   cmd.add_argument('--train', required=True, help='the path to the training file.')
   cmd.add_argument('--devel', required=True, help='the path to the development file.')
   cmd.add_argument('--output', help='the path to the output file.')
   cmd.add_argument('--model', required=True, help='the path to the model file.')
   args = cmd.parse_args()
 
-  train_sents = load_corpus(args.train)
-  x_train = [sent2features(s) for s in train_sents]
-  y_train = [sent2labels(s) for s in train_sents]
-  print('# training data: {0}'.format(len(x_train)))
+  if args.do_train:
+    train_sents = load_corpus(args.train)
+    x_train = [sent2features(s) for s in train_sents]
+    y_train = [sent2labels(s) for s in train_sents]
+    print('# training data: {0}'.format(len(x_train)))
 
   devel_sents = load_corpus(args.devel)
   x_test = [sent2features(s) for s in devel_sents]
   y_test = [sent2labels(s) for s in devel_sents]
   print('# test data: {0}'.format(len(x_test)))
 
-  trainer = pycrfsuite.Trainer(algorithm='lbfgs', verbose=True)
+  if args.do_train:
+    trainer = pycrfsuite.Trainer(algorithm='lbfgs', verbose=True)
 
-  for xseq, yseq in zip(x_train, y_train):
-    trainer.append(xseq, yseq)
+    for xseq, yseq in zip(x_train, y_train):
+      trainer.append(xseq, yseq)
 
-  trainer.set_params({
-    'c1': 0.0,  # coefficient for L1 penalty
-    'c2': 1e-5,  # coefficient for L2 penalty
-    'max_iterations': 500,  # stop earlier
-    # include transitions that are possible, but not observed
-    'feature.possible_transitions': True
-  })
+    trainer.set_params({
+      'c1': 0.0,  # coefficient for L1 penalty
+      'c2': 1e-5,  # coefficient for L2 penalty
+      'max_iterations': 500,  # stop earlier
+      # include transitions that are possible, but not observed
+      'feature.possible_transitions': True
+    })
 
-  print(trainer.params())
-
-  trainer.train(args.model)
+    print(trainer.params())
+    trainer.train(args.model)
 
   tagger = pycrfsuite.Tagger()
   tagger.open(args.model)
@@ -96,12 +99,14 @@ def main():
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
   else:
     fpo = sys.stdout
-  pred = []
-  for xseq, yseq in zip(x_test, y_test):
-    output = tagger.tag(sent2features(xseq))
-    print(output, file=fpo)
+  gold, pred = [], []
+  for i in range(len(devel_sents)):
+    output = tagger.tag(sent2features(devel_sents[i]))
+    print(' '.join(output), file=fpo)
     pred.append(output)
-  print(f_score(y_test, pred), file=sys.stderr)
+    gold.append([tag for ch, tag in devel_sents[i]])
+  p = sum(map(lambda x, y: 1 if x == y else 0, flatten(pred), flatten(gold))) / len(flatten(gold))
+  print(p, file=sys.stderr)
 
 
 if __name__ == "__main__":
