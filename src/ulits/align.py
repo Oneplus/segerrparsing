@@ -39,7 +39,7 @@ def align(fp_auto_temp, gold_conll, auto_txt_align):
                 flag = True
                 count += 1
                 print("has aligned {0} sentences:".format(count))
-                res_sentence.append(sentence_auto)
+                res_sentence.append(sentences_auto)
                 break
         if  flag == False:
             # print("{0} gold conll don't find".format(sentences_conll))
