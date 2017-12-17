@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer
+from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer, ClassifyPartialLayer
 from seqlabel.dataloader import load_embedding, pad
 from seqlabel.utils import flatten, deep_iter, dict2namedtuple
 try:
@@ -132,6 +132,9 @@ class Model(nn.Module):
                             bidirectional=True)
       encoder_output = args.hidden_dim * 2
     self.classify_layer = ClassifyLayer(encoder_output, n_class, self.use_cuda)
+
+    self.classify_partial = ClassifyPartialLayer(encoder_output, n_class, self.use_cuda)
+
     self.train_time = 0
     self.eval_time = 0
     self.emb_time = 0
@@ -164,7 +167,11 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    output, loss = self.classify_layer.forward(output, y)
+    if self.args.use_partial == True:
+      output, loss = self.classify_partial_layer.forward(output, y)
+
+    else:
+      output, loss = self.classify_layer.forward(output, y)
 
     if not self.training:
       self.classify_time += time.time() - start_time
@@ -264,6 +271,8 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
+  cmd.add_argument("--use_partial", default=False, help = "whether use the partial data")
+
   args = cmd.parse_args(sys.argv[2:])
   print(args)
   torch.manual_seed(args.seed)
@@ -276,7 +285,7 @@ def train():
   logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
     sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
 
-  label_to_ix = {}
+  label_to_ix = {'CIXIN':0}
   label_to_index(train_y, label_to_ix)
   label_to_index(valid_y, label_to_ix)
   label_to_index(test_y, label_to_ix)

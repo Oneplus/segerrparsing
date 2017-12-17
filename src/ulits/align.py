@@ -24,17 +24,7 @@ def align(fp_auto_temp, gold_conll, auto_txt_align):
             sentence_auto = ""
             for index, value in enumerate(sentences_auto.split()):
                 sentence_auto += value
-            # sentence_auto = "".join(auto_txt_align[index_auto].split())
-            #print("sentences_conll = {0}, sentences_auto = {1}".format(sentences_conll, sentence_auto))
-            # if sentences_conll == sentence_auto:  # find the sentences
-            #     if index_auto not in index_list:  # not in it and transit
-            #         count += 1
-            #         print("has aligned {0} sentences:".format(count))
-            #         res_sentence.append(sentence_auto)
-            #         index_list.append(index_auto)
-            #         break  # one one correspond
-            # print("{0}".format(sentences_conll))
-            # print("{0}".format(sentence_auto))
+
             if sentences_conll == sentence_auto:
                 flag = True
                 count += 1
@@ -49,9 +39,14 @@ def align(fp_auto_temp, gold_conll, auto_txt_align):
 
 if __name__ == '__main__':
     cmd = argparse.ArgumentParser('align auto sentence and gold sentence')
-    cmd.add_argument("--gold_conll_path", help = "path of gold conll", default='../../data/CTB5.1/CTB5.1-train.gp.conll')
-    cmd.add_argument("--aligned_sentence_path", help = "path of auto sentence", default='../../outputs/aligned_fold_all.txt')
-    cmd.add_argument("--auto_sentence_path", help = "path of aligned sentence", default='../../outputs/fold_all.txt')
+    # cmd.add_argument("--gold_conll_path", help = "path of gold conll", default='../../data/CTB5.1/CTB5.1-train.gp.conll')
+    # cmd.add_argument("--aligned_sentence_path", help = "path of auto sentence", default='../../outputs/aligned_fold_all.txt')
+    # cmd.add_argument("--auto_sentence_path", help = "path of aligned sentence", default='../../outputs/fold_all.txt')
+
+    cmd.add_argument("--gold_conll_path", help="path of gold conll", default='../../data/pos/test.conll')
+    cmd.add_argument("--aligned_sentence_path", help="path of auto sentence",
+                     default='../../data/pos/aligned.txt')
+    cmd.add_argument("--auto_sentence_path", help="path of aligned sentence", default='../../data/pos/test.sentence')
     args = cmd.parse_args()
 
     fp_gold_conll = args.gold_conll_path

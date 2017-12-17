@@ -62,34 +62,6 @@ def transit(args, auto_mid_represent, gold_mid_represent):
     index_gold, index_auto = 0,0
     str_auto, str_gold = "", ""
 
-    # while index_auto < len_auto and index_gold < len_gold:
-    #     auto_word = auto_mid_represent[index_auto][0]
-    #     gold_word = gold_mid_represent[index_gold][0]
-    #
-    #     if auto_word == gold_word:  # 如果相等就有可能需要重新标注，看gold的父亲是否在auto中出现
-    #         father_id = gold_mid_represent[index_gold][3]
-    #         father_list = gold_mid_represent[int(father_id) - 1]
-    #
-    #         id = is_in_auto(auto_mid_represent, father_list)  # 返回的是在auto的句子中的序号
-    #         if id != -1:  # 如果在里面
-    #             auto_mid_represent[index_auto][3] = id
-    #             auto_mid_represent[index_auto][2] = gold_mid_represent[index_gold][2]
-    #             str_auto += auto_mid_represent[index_auto][0]
-    #             str_gold += gold_mid_represent[index_gold][0]
-    #
-    #     if len(str_auto) < len(str_gold):
-    #         index_auto += 1
-    #         str_auto += auto_mid_represent[index_auto][0]
-    #     elif len(str_auto) > len(str_gold):
-    #         index_gold += 1
-    #         str_gold += gold_mid_represent[index_gold][0]
-    #     else:
-    #         index_gold += 1
-    #         str_auto += auto_word
-    #         # str_gold = ""
-    #         index_auto += 1
-    #         str_gold += gold_word
-    #         # str_auto = ""
 
     while index_auto < len_auto and index_gold < len_gold:
         auto_word = auto_mid_represent[index_auto][0]
@@ -166,39 +138,6 @@ def transit_one_sentence(args, auto_sentence, gold_conll_sentence):
         start_id = start_id + len(value[1])
 
     return transit(args, auto_mid_represent, gold_mid_represent)
-
-def align(fp_auto_temp, gold_conll, auto_txt_align):
-    '''
-    the result restore in fp_auto_temp
-    :param fp_auto_temp:
-    :param gold_conll:
-    :param auto_txt_align:
-    :return:
-    '''
-    count = 0
-    res_sentence = []
-    index_list = []  # find it and delete it
-    for sentence_index, sentence in enumerate(gold_conll):
-        # print("align {0}".format(sentence_index))
-        sentences_conll = ""
-        sentences_auto = ""
-        for word_index, word in enumerate(sentence.split('\n')):
-            word = word.strip().split()
-            sentences_conll += word[1]
-
-        for index_auto, sentences_auto in enumerate(auto_txt_align):
-            sentence_auto = "".join(auto_txt_align[index_auto].split())
-            #print("sentences_conll = {0}, sentences_auto = {1}".format(sentences_conll, sentence_auto))
-            if sentences_conll == sentence_auto:  # find the sentences
-                if index_auto not in index_list:  # not in it and transit
-                    count += 1
-                    print("has aligned {0} sentences:".format(count))
-                    res_sentence.append(sentence_auto)
-                    index_list.append(index_auto)
-                    break  # one one correspond
-
-    res_sentence = '\n'.join(res_sentence)
-    fp_auto_temp.write(res_sentence)
 
 
 def transited(args):

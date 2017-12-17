@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from utils import flatten, deep_iter
+PARTIAL = 0
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 
 
@@ -99,6 +101,53 @@ class ClassifyLayer(nn.Module):
     for i in range(len(y)):
       cur_len = len(y[i])
       indices += [i * max_len + x for x in range(cur_len)]
+    return indices
+
+  def _get_tag_list(self, tag_result, y):
+    tag_list = []
+    last = 0
+    for i in range(len(y)):
+      tag_list.append(tag_result[0][last: last + len(y[i])].data.tolist())
+      last += len(y[i])
+    return tag_list
+
+  def forward(self, x, y):
+    tag_vec = Variable(torch.LongTensor(flatten(y))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(flatten(y)))
+    indices = Variable(torch.LongTensor(self._get_indices(y))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(self._get_indices(y)))
+    tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
+    if self.training:
+      tag_scores = F.log_softmax(tag_scores)
+    _, tag_result = torch.max(tag_scores, 1)
+
+    if self.training:
+      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average=False)
+    else:
+      return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
+
+
+class ClassifyPartialLayer(nn.Module):
+  def __init__(self, n_in, tag_size, use_cuda=False):
+    super(ClassifyPartialLayer, self).__init__()
+    self.hidden2tag = nn.Linear(n_in, tag_size)
+    self.n_in = n_in
+    self.use_cuda = use_cuda
+
+  def _get_indices_except_partical(self, y):
+    indices = []
+    # max_len = len(y[0])
+    # for i in range(len(y)):
+    #   cur_len = len(y[i])
+    #   indices += [i * max_len + x for x in range(cur_len)]
+
+    count  = -1
+    for index, value in enumerate(y):
+      for index_word, value_word in enumerate(value):
+        count += 1
+        if value_word != PARTIAL:
+          indices.append(count)
+
     return indices
 
   def _get_tag_list(self, tag_result, y):
