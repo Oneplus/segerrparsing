@@ -7,7 +7,7 @@ import codecs
 
 def main():
     cmd = argparse.ArgumentParser("convert conll file to segment data.")
-    cmd.add_argument('--input', default='../data/CTB5.1-devel.gp.conll')
+    cmd.add_argument('--input', default='../data/CTB5.1-train.gp.conll')
     cmd.add_argument('--output', default='../data/output_seg.txt')
 
     args = cmd.parse_args()
