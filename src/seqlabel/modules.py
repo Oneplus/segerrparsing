@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import logging
 import torch
 import torch.nn as nn
@@ -127,12 +128,20 @@ class ClassifyLayer(nn.Module):
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
 
 
-class ClassifyPartialLayer(nn.Module):
+class PartialClassifyLayer(nn.Module):
   def __init__(self, n_in, tag_size, use_cuda=False):
-    super(ClassifyPartialLayer, self).__init__()
+    super(PartialClassifyLayer, self).__init__()
     self.hidden2tag = nn.Linear(n_in, tag_size)
     self.n_in = n_in
     self.use_cuda = use_cuda
+
+  def _get_indices(self, y):
+    indices = []
+    max_len = len(y[0])
+    for i in range(len(y)):
+      cur_len = len(y[i])
+      indices += [i * max_len + x for x in range(cur_len)]
+    return indices
 
   def _get_indices_except_partical(self, y):
     indices = []
@@ -151,6 +160,16 @@ class ClassifyPartialLayer(nn.Module):
     return indices
 
   def _get_tag_list(self, tag_result, y):
+    # b = []
+    # temp_y = y
+    # for i in range(len(temp_y)):
+    #   temp = []
+    #   for value in temp_y[i]:
+    #     if value!=PARTIAL:
+    #       temp.append(value)
+    #   b.append(temp)
+
+    # y = b
     tag_list = []
     last = 0
     for i in range(len(y)):
@@ -159,17 +178,37 @@ class ClassifyPartialLayer(nn.Module):
     return tag_list
 
   def forward(self, x, y):
-    tag_vec = Variable(torch.LongTensor(flatten(y))).cuda() if self.use_cuda \
-      else Variable(torch.LongTensor(flatten(y)))
+    temp_y = y
+    b = []
+
+    # for i in range(len(temp_y)):
+    #   if PARTIAL in temp_y[i]:
+    #     temp_y[i].remove(PARTIAL)
+    for i in range(len(temp_y)):
+      temp = []
+      for value in temp_y[i]:
+        if value!=PARTIAL:
+          temp.append(value)
+      b.append(temp)
+
+    tag_vec = Variable(torch.LongTensor(flatten(b))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(flatten(b)))
+    indices_partial = Variable(torch.LongTensor(self._get_indices_except_partical(y))).cuda() if self.use_cuda \
+      else Variable(torch.LongTensor(self._get_indices_except_partical(y)))
     indices = Variable(torch.LongTensor(self._get_indices(y))).cuda() if self.use_cuda \
-      else Variable(torch.LongTensor(self._get_indices(y)))
+        else Variable(torch.LongTensor(self._get_indices(y)))
+    tag_scores_partial = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices_partial))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
+    # 这里的tag_scores已经去掉了CIXIN的那些索引了，但是最终的预测是否需要去掉？？
     if self.training:
       tag_scores = F.log_softmax(tag_scores)
+      tag_scores_partial = F.log_softmax(tag_scores_partial)
+    _, tag_result_partial = torch.max(tag_scores_partial, 1)
     _, tag_result = torch.max(tag_scores, 1)
+    print("tag_result.size() = {0}, y.size() = {1}".format(tag_result.size(), tag_vec.size()))
 
     if self.training:
-      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average=False)
+      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores_partial, tag_vec, size_average=False)
     else:
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
 
