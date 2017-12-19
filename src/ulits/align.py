@@ -13,6 +13,7 @@ def align(fp_auto_temp, gold_conll, auto_txt_align):
     res_sentence = []
     index_list = []  # find it and delete it
     for sentence_index, sentence in enumerate(gold_conll):
+
         flag = False
         sentences_conll = ""
         sentences_auto = ""
@@ -43,10 +44,10 @@ if __name__ == '__main__':
     # cmd.add_argument("--aligned_sentence_path", help = "path of auto sentence", default='../../outputs/aligned_fold_all.txt')
     # cmd.add_argument("--auto_sentence_path", help = "path of aligned sentence", default='../../outputs/fold_all.txt')
 
-    cmd.add_argument("--gold_conll_path", help="path of gold conll", default='../../data/pos/test.conll')
+    cmd.add_argument("--gold_conll_path", help="path of gold conll", default='../../outputs/fold_1/test.conll')
     cmd.add_argument("--aligned_sentence_path", help="path of auto sentence",
-                     default='../../data/pos/aligned.txt')
-    cmd.add_argument("--auto_sentence_path", help="path of aligned sentence", default='../../data/pos/test.sentence')
+                     default='../../outputs/fold_1/aligned.txt')
+    cmd.add_argument("--auto_sentence_path", help="path of aligned sentence", default='../../outputs/fold_1/test.sentence')
     args = cmd.parse_args()
 
     fp_gold_conll = args.gold_conll_path

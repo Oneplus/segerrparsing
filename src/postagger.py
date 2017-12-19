@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer, ClassifyPartialLayer
+from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer, PartialClassifyLayer
 from seqlabel.dataloader import load_embedding, pad
 from seqlabel.utils import flatten, deep_iter, dict2namedtuple
 try:
@@ -133,7 +133,7 @@ class Model(nn.Module):
       encoder_output = args.hidden_dim * 2
     self.classify_layer = ClassifyLayer(encoder_output, n_class, self.use_cuda)
 
-    self.classify_partial = ClassifyPartialLayer(encoder_output, n_class, self.use_cuda)
+    self.classify_partial = PartialClassifyLayer(encoder_output, n_class, self.use_cuda)
 
     self.train_time = 0
     self.eval_time = 0
@@ -167,8 +167,8 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    if self.args.use_partial == True:
-      output, loss = self.classify_partial_layer.forward(output, y)
+    if self.args.use_partial == 'True':
+      output, loss = self.classify_partial.forward(output, y)
 
     else:
       output, loss = self.classify_layer.forward(output, y)
