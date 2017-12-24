@@ -33,14 +33,14 @@ def convert_to_conll(args, auto_mid_represent):
         str_one_sentence += '\t'
         str_one_sentence += value[0]
         str_one_sentence += '\t'
-        temp = 'CIXIN'
-        if value[5] != 'CIXIN':
+        temp = '<UNK>'
+        if value[5] != '<UNK>':
             temp = value[5]
         str_one_sentence += temp
         str_one_sentence += '\t'
         str_one_sentence += temp
         str_one_sentence += '\t'
-        str_one_sentence += temp
+        str_one_sentence += '_'
         str_one_sentence += '\t'
         str_one_sentence += str(value[3])
         str_one_sentence += '\t'
@@ -69,14 +69,20 @@ def transit(args, auto_mid_represent, gold_mid_represent):
 
 
         if auto_word == gold_word:  # 如果相等就有可能需要重新标注，看gold的父亲是否在auto中出现
+            auto_mid_represent[index_auto][5] = gold_mid_represent[index_gold][5]
             father_id = gold_mid_represent[index_gold][3]
             father_list = gold_mid_represent[int(father_id) - 1]
+            if father_id == '0':
 
-            id = is_in_auto(auto_mid_represent, father_list)  # 返回的是在auto的句子中的序号
-            if id != -1:  # 如果在里面
-                auto_mid_represent[index_auto][3] = id
+                auto_mid_represent[index_auto][3] = 0
                 auto_mid_represent[index_auto][2] = gold_mid_represent[index_gold][2]
-                auto_mid_represent[index_auto][5] = gold_mid_represent[index_gold][5]
+
+            else:
+                id = is_in_auto(auto_mid_represent, father_list)  # 返回的是在auto的句子中的序号
+                if id != -1:  # 如果在里面
+                    auto_mid_represent[index_auto][3] = id
+                    auto_mid_represent[index_auto][2] = gold_mid_represent[index_gold][2]
+
                 # str_auto += auto_mid_represent[index_auto][0]
                 # str_gold += gold_mid_represent[index_gold][0]
             str_gold += gold_word
@@ -84,19 +90,32 @@ def transit(args, auto_mid_represent, gold_mid_represent):
             index_auto += 1
             index_gold += 1
         else:
+            # str_gold += gold_word
+            # str_auto += auto_word
+            # while len(str_auto) < len(str_gold):
+            #     index_auto += 1
+            #     if index_auto < len_auto:
+            #         str_auto += auto_mid_represent[index_auto][0]
+            #
+            # while len(str_auto) > len(str_gold):
+            #     index_gold += 1
+            #     if index_gold < len_gold:
+            #         str_gold += gold_mid_represent[index_gold][0]
+            # index_gold += 1
+            # index_auto += 1
             str_gold += gold_word
             str_auto += auto_word
-            while len(str_auto) < len(str_gold):
-                index_auto += 1
-                if index_auto < len_auto:
-                    str_auto += auto_mid_represent[index_auto][0]
-
-            while len(str_auto) > len(str_gold):
-                index_gold += 1
-                if index_gold < len_gold:
-                    str_gold += gold_mid_represent[index_gold][0]
             index_gold += 1
             index_auto += 1
+            while index_auto < len_auto and index_gold < len_gold:   #until equal
+                if len(str_gold) > len(str_auto):
+                    str_auto += auto_mid_represent[index_auto][0]
+                    index_auto += 1
+                elif len(str_gold) < len(str_auto):
+                    str_gold += gold_mid_represent[index_gold][0]
+                    index_gold += 1
+                else:
+                    break
 
     #print(auto_mid_represent)
 
@@ -121,7 +140,7 @@ def transit_one_sentence(args, auto_sentence, gold_conll_sentence):
         temp = []
         end_id = start_id + len(value)
         id = str(start_id)+"_"+ str(end_id)
-        temp = [value] + [id] + ["AUTO_HEAD"] + ["-0"]+[index] + ['CIXIN']
+        temp = [value] + [id] + ["<UNK>"] + ["<UNK>"]+[index] + ['<UNK>']
         auto_mid_represent.append(temp)
         start_id = start_id+len(value)
 
@@ -138,7 +157,19 @@ def transit_one_sentence(args, auto_sentence, gold_conll_sentence):
         start_id = start_id + len(value[1])
 
     return transit(args, auto_mid_represent, gold_mid_represent)
+def judge_illegal(conll):
+    '''
+    judge the conll whether is illegal
+    :param conll:
+    :return:
+    '''
+    conll = conll.strip().split('\n')
+    #print(conll)
+    for index, value in enumerate(conll):
 
+        if(len(value.strip().split()) != 8):
+            return False
+    return True
 
 def transited(args):
     gold_conll_path  =args.gold_conll_path
@@ -160,9 +191,9 @@ def transited(args):
 
     res_trainsit = []
     for index_sentence, sentence in enumerate(auto_txt_align):
-        if(index_sentence == 9914 or index_sentence == 12405 or index_sentence == 12490 or index_sentence == 14219):
-            continue
         print(index_sentence)
+        if judge_illegal(gold_conll[index_sentence]) == False:
+            continue
         transit_sentence = transit_one_sentence(args, sentence, gold_conll[index_sentence])
         res_trainsit.append(transit_sentence)
 
@@ -175,15 +206,15 @@ def transited(args):
 
 def main():
     cmd = argparse.ArgumentParser('transit gold seg to auto seg format conll')
-    cmd.add_argument("--gold_conll_path", help = "the path of gold conll", default='../../data/CTB5.1/CTB5.1-train.gp.conll')
-    cmd.add_argument("--auto_seg_adjust_order", help = "the path of auto seg", default='../../data/CTB5.1/test/aligned_fold_all.txt')
+    cmd.add_argument("--gold_conll_path", help = "the path of gold conll", default='../../outputs/fold_1/test.conll')
+    cmd.add_argument("--auto_seg_adjust_order", help = "the path of auto seg", default='../../outputs/fold_1/aligned.txt')
 
     # cmd.add_argument("--gold_conll_path", help="the path of gold conll",
     #                  default='../../data/CTB5.1/test/test.conll')
     # cmd.add_argument("--auto_seg_adjust_order", help="the path of auto seg",
     #                  default='../../data/CTB5.1/test/test.txt')
 
-    cmd.add_argument("--auto_conll_path", help = "the path of auto conll", default='../../data/CTB5.1/test/auto.conll')
+    cmd.add_argument("--auto_conll_path", help = "the path of auto conll", default='../../outputs/fold_1/auto.conll')
 
     args = cmd.parse_args()
 
