@@ -187,27 +187,6 @@ class Model(nn.Module):
 
 def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
   if args.use_partial == 0:
-      start_time = time.time()
-      model.eval()
-      # total_loss = 0.0
-      pred, gold = [], []
-      for x, y in zip(valid_x, valid_y):
-        output, loss = model.forward(x, y)
-        # total_loss += loss.data[0]
-        pred += output
-        print("pred{0}".format(pred))
-        gold += y
-      model.train()
-      correct = map(cmp, flatten(gold), flatten(pred)).count(0)
-      total = len(flatten(gold))
-      logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
-      return 1.0 * correct / total
-  elif args.use_partial == 1:
-      start_time = time.time()
-      model.eval()
-      # total_loss = 0.0
-      pred, gold = [], []
-
       if type == 'test':
           fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
           fp_gold_pos = args.gold_test_path
@@ -216,8 +195,21 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
           fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
           fp_gold_pos = args.gold_valid_path
           fp_auto_pos = args.auto_valid_path
-      count = 0
-      res = []
+      start_time = time.time()
+      model.eval()
+      # total_loss = 0.0
+      pred, gold, res = [], [], []
+      for x, y in zip(valid_x, valid_y):
+        output, loss = model.forward(x, y)
+        # total_loss += loss.data[0]
+        pred += output
+        # print("pred{0}".format(pred))
+        gold += y
+      model.train()
+      correct = map(cmp, flatten(gold), flatten(pred)).count(0)
+      total = len(flatten(gold))
+
+
       for x, y, text in zip(valid_x, valid_y, text_):
 
           output, loss = model.forward(x, y)
@@ -230,21 +222,137 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
                   temp.append(str_temp)
 
               res.append(' '.join(temp))
-              count += 1
 
       fpo.write('\n'.join(res))
+
+
       fpo.close()
-      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', fp_gold_pos, '--auto_pos_path', fp_auto_pos],stdout=subprocess.PIPE)
+      # sort them for the same order, to cal the right f value
+      with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+
+        sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+        sort.wait()
+
+      with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+
+        sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
+        sort_gold.wait()
+
+      str_gold_pos_path = fp_gold_pos + 'text.txt'
+      str_auto_pos_path = fp_auto_pos + 'text.txt'
+      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
+      p.wait()
       f = 0
       for line in p.stdout.readlines():
           print(line)
           f = line.strip().split()[-1]
+      logging.info("**Evaluate result: acc = {:.6f}, time = {}, f = {}".format(1.0 * correct / total, time.time() - start_time, f))
+      return 1.0 * correct / total
+  elif args.use_partial == 1:
+      # start_time = time.time()
+      # model.eval()
+      # # total_loss = 0.0
+      # pred, gold = [], []
+      #
+      # if type == 'test':
+      #     fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
+      #     fp_gold_pos = args.gold_test_path
+      #     fp_auto_pos = args.auto_test_path
+      # elif type == 'valid':
+      #     fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
+      #     fp_gold_pos = args.gold_valid_path
+      #     fp_auto_pos = args.auto_valid_path
+      #
+      # count = 0
+      # res = []
+      # for x, y, text in zip(valid_x, valid_y, text_):
+      #
+      #     output, loss = model.forward(x, y)
+      #     pred += output
+      #     gold += y
+      #     for word, raw in zip(text, output):
+      #         temp = []
+      #         for index_pos, pos in enumerate(word):
+      #             str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
+      #             temp.append(str_temp)
+      #
+      #         res.append(' '.join(temp))
+      #         count += 1
+      # fpo.write('\n'.join(res))
+      # fpo.close()
+      # # sort them for the same order, to cal the right f value
+      # with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+      #
+      #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+      #   sort.wait()
+      #
+      # with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+      #
+      #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
+      #   sort_gold.wait()
+      #
+      # str_gold_pos_path = fp_gold_pos + 'text.txt'
+      # str_auto_pos_path = fp_auto_pos + 'text.txt'
+      # p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
+      # p.wait()
+      # f = 0
+      # for line in p.stdout.readlines():
+      #     print(line)
+      #     f = line.strip().split()[-1]
+      #
+      # return float(f)
+      if type == 'test':
+          fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
+          fp_gold_pos = args.gold_test_path
+          fp_auto_pos = args.auto_test_path
+      elif type == 'valid':
+          fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
+          fp_gold_pos = args.gold_valid_path
+          fp_auto_pos = args.auto_valid_path
+      start_time = time.time()
+
+      model.eval()
+      # total_loss = 0.0
+      pred, gold, res = [], [], []
+
+      for x, y, text in zip(valid_x, valid_y, text_):
+
+          output, loss = model.forward(x, y)
+          pred += output
+          gold += y
+          for word, raw in zip(text, output):
+              temp = []
+              for index_pos, pos in enumerate(word):
+                  str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
+                  temp.append(str_temp)
+
+              res.append(' '.join(temp))
+
+      fpo.write('\n'.join(res))
+
+
+      fpo.close()
+      # sort them for the same order, to cal the right f value
+      with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+
+        sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+        sort.wait()
+
+      with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+
+        sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
+        sort_gold.wait()
+
+      str_gold_pos_path = fp_gold_pos + 'text.txt'
+      str_auto_pos_path = fp_auto_pos + 'text.txt'
+      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
+      p.wait()
+      f = 0
+      for line in p.stdout.readlines():
+          print(line)
+          f = line.strip().split()[-1]
+
       return float(f)
-
-
-
-
-
 
 
 def train_model(epoch, model, optimizer,
@@ -289,7 +397,7 @@ def train_model(epoch, model, optimizer,
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
     best_valid = valid_result
     test_result = eval_model(niter, model, test_x, test_y, args, 'test', test_x_text, ix2label)
-    logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(epoch, niter, optimizer.param_groups[0]['lr'],
+    logging.info("New Record!!Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(epoch, niter, optimizer.param_groups[0]['lr'],
                                                                      test_result))
   return best_valid, test_result
 

@@ -8,9 +8,7 @@
 
 import codecs
 import sys
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     dataset = codecs.open(sys.argv[1], 'r', encoding='utf-8').read().strip().split('\n')  #['','',]
     #print (dataset)
     for data in sorted(dataset, key=lambda d: ''.join(d.split())):  #
@@ -18,3 +16,6 @@ if __name__ == "__main__":
         print(data, end='\n')
         #sorted(lst, key=lambda i: -len())
     #d = dataset[0]
+
+
+

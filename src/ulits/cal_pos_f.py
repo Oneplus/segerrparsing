@@ -39,8 +39,13 @@ def main():
 
     with codecs.open(args.gold_pos_path, 'r', encoding='utf-8') as fp_gold:
         gold_pos = fp_gold.read().strip().split('\n')
+        fp_gold.close()
+
     with codecs.open(args.auto_pos_path, 'r', encoding='utf-8') as fp_auto:
         auto_pos = fp_auto.read().strip().split('\n')
+        fp_auto.close()
+
+
 
     n_corr, n_pred, n_gold = 0.0, 0.0, 0.0
     for index_gold, gold in enumerate(gold_pos):
@@ -57,6 +62,7 @@ def main():
     r = 0 if n_gold == 0 else 1. * n_corr / n_gold
     f = 0 if p * r == 0 else 2. * p * r / (p + r)
     print("p = {0}, r = {1}, f = {2}".format(p,r,f))
+    assert len(gold_pos) == len(auto_pos)
     return p
 
 if __name__ == '__main__':

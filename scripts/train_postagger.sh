@@ -11,4 +11,4 @@ python2 ../src/postagger.py train \
     --model ../models/postagger/model_1.pkl \
     --word_embedding ../data/embeddings/zh.100-test.embed \
     --max_epoch 1 \
-    --use_partial True \
+    --use_partial 0 \
