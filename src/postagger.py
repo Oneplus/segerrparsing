@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
 import os
 import errno
@@ -17,6 +18,8 @@ from torch.autograd import Variable
 from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer, EmbeddingLayer, PartialClassifyLayer
 from seqlabel.dataloader import load_embedding, pad
 from seqlabel.utils import flatten, deep_iter, dict2namedtuple
+import subprocess
+ix2label = {}
 try:
   import seqlabel.cuda_functional as MF
 except:
@@ -108,10 +111,11 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=True, use_cuda=Fals
 
 
 class Model(nn.Module):
-  def __init__(self, args, emb_layer, n_class, use_cuda):
+  def __init__(self, args, emb_layer, n_class, use_cuda, use_parital):
     super(Model, self).__init__()
     self.use_cuda = use_cuda
     self.args = args
+    self.use_partial = use_parital
     self.emb_layer = emb_layer
     encoder_output = None
     if args.encoder.lower() == 'cnn':
@@ -131,9 +135,11 @@ class Model(nn.Module):
       self.encoder = MF.SRU(emb_layer.n_d, args.hidden_dim, args.depth, dropout=args.dropout, use_tanh=1,
                             bidirectional=True)
       encoder_output = args.hidden_dim * 2
-    self.classify_layer = ClassifyLayer(encoder_output, n_class, self.use_cuda)
 
-    self.classify_partial = PartialClassifyLayer(encoder_output, n_class, self.use_cuda)
+    if use_parital == 0:
+      self.classify_layer = ClassifyLayer(encoder_output, n_class, self.use_cuda)
+    else:
+      self.classify_partial = PartialClassifyLayer(encoder_output, n_class, self.use_cuda)
 
     self.train_time = 0
     self.eval_time = 0
@@ -167,7 +173,7 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    if self.args.use_partial == 'True':
+    if self.use_partial == 1:
       output, loss = self.classify_partial.forward(output, y)
 
     else:
@@ -176,30 +182,75 @@ class Model(nn.Module):
     if not self.training:
       self.classify_time += time.time() - start_time
 
-    return output, loss 
+    return output, loss
 
 
-def eval_model(niter, model, valid_x, valid_y):
-  start_time = time.time()
-  model.eval()
-  # total_loss = 0.0
-  pred, gold = [], []
-  for x, y in zip(valid_x, valid_y):
-    output, loss = model.forward(x, y)
-    # total_loss += loss.data[0]
-    pred += output
-    gold += y
-  model.train()
-  correct = map(cmp, flatten(gold), flatten(pred)).count(0)
-  total = len(flatten(gold))
-  logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
-  return 1.0 * correct / total
+def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
+  if args.use_partial == 0:
+      start_time = time.time()
+      model.eval()
+      # total_loss = 0.0
+      pred, gold = [], []
+      for x, y in zip(valid_x, valid_y):
+        output, loss = model.forward(x, y)
+        # total_loss += loss.data[0]
+        pred += output
+        print("pred{0}".format(pred))
+        gold += y
+      model.train()
+      correct = map(cmp, flatten(gold), flatten(pred)).count(0)
+      total = len(flatten(gold))
+      logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
+      return 1.0 * correct / total
+  elif args.use_partial == 1:
+      start_time = time.time()
+      model.eval()
+      # total_loss = 0.0
+      pred, gold = [], []
+
+      if type == 'test':
+          fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
+          fp_gold_pos = args.gold_test_path
+          fp_auto_pos = args.auto_test_path
+      elif type == 'valid':
+          fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
+          fp_gold_pos = args.gold_valid_path
+          fp_auto_pos = args.auto_valid_path
+      count = 0
+      res = []
+      for x, y, text in zip(valid_x, valid_y, text_):
+
+          output, loss = model.forward(x, y)
+          pred += output
+          gold += y
+          for word, raw in zip(text, output):
+              temp = []
+              for index_pos, pos in enumerate(word):
+                  str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
+                  temp.append(str_temp)
+
+              res.append(' '.join(temp))
+              count += 1
+
+      fpo.write('\n'.join(res))
+      fpo.close()
+      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', fp_gold_pos, '--auto_pos_path', fp_auto_pos],stdout=subprocess.PIPE)
+      f = 0
+      for line in p.stdout.readlines():
+          print(line)
+          f = line.strip().split()[-1]
+      return float(f)
+
+
+
+
+
 
 
 def train_model(epoch, model, optimizer,
                 train_x, train_y, valid_x, valid_y,
                 test_x, test_y,
-                best_valid, test_result):
+                best_valid, test_result, args,valid_x_text, test_x_text, ix2label):
   model.train()
   args = model.args
   niter = epoch * len(train_x[0])
@@ -226,8 +277,9 @@ def train_model(epoch, model, optimizer,
         time.time() - start_time
       ))
       start_time = time.time()
-    
-  valid_result = eval_model(niter, model, valid_x, valid_y)
+
+  # when use_partial == 0, use acc and when use_partial == 1, use f score
+  valid_result = eval_model(niter, model, valid_x, valid_y, args, 'valid', valid_x_text, ix2label)
 
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(epoch, niter,
                                                                                       optimizer.param_groups[0]['lr'],
@@ -236,7 +288,7 @@ def train_model(epoch, model, optimizer,
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
     best_valid = valid_result
-    test_result = eval_model(niter, model, test_x, test_y)
+    test_result = eval_model(niter, model, test_x, test_y, args, 'test', test_x_text, ix2label)
     logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(epoch, niter, optimizer.param_groups[0]['lr'],
                                                                      test_result))
   return best_valid, test_result
@@ -260,6 +312,13 @@ def train():
   cmd.add_argument('--train_path', required=True, help='the path to the training file.')
   cmd.add_argument('--valid_path', required=True, help='the path to the validation file.')
   cmd.add_argument('--test_path', required=True, help='the path to the testing file.')
+  # cmd.add_argument('--partial_train_path', required=True, type = str, help='the path to the training file.')
+  # cmd.add_argument('--partial_valid_path', required=True, type = str, help='the path to the validation file.')
+  # cmd.add_argument('--partial_test_path', required=True, type = str, help='the path to the testing file.')
+  cmd.add_argument('--auto_valid_path', required=True, type=str, help='the path to the validation file.')
+  cmd.add_argument('--auto_test_path', required=True, type=str, help='the path to the testing file for cal f score.')
+  cmd.add_argument('--gold_valid_path', required=True, type=str, help='the path to the validation file for cal f score.')
+  cmd.add_argument('--gold_test_path', required=True, type=str, help='the path to the testing file.')
   cmd.add_argument("--model", required=True, help="path to save model")
   cmd.add_argument("--word_embedding", type=str, required=True, help="word vectors")
   cmd.add_argument("--batch_size", "--batch", type=int, default=32, help='the batch size.')
@@ -271,7 +330,7 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
-  cmd.add_argument("--use_partial", default=False, help = "whether use the partial data")
+  cmd.add_argument("--use_partial", default=0, type = int, help = "whether use the partial data")
 
   args = cmd.parse_args(sys.argv[2:])
   print(args)
@@ -279,7 +338,10 @@ def train():
   random.seed(args.seed)
 
   use_cuda = args.cuda and torch.cuda.is_available()
+  # if(args.use_partial == 0):
   train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.train_path, args.valid_path, args.test_path)
+  # else:
+  #     train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.partial_train_path, args.partial_valid_path, args.partial_test_path)
   logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
     len(train_y), len(valid_y), len(test_y)))
   logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
@@ -307,11 +369,13 @@ def train():
   logging.info('embedding size: ' + str(len(emb_layer.word2id)))
 
   nclasses = len(label_to_ix)
-  train_x, train_y = create_batches(train_x, train_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda)
-  valid_x, valid_y = create_batches(valid_x, valid_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda)
-  test_x, test_y = create_batches(test_x, test_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda)
+  ix2label = {ix:label for label, ix in label_to_ix.items()}
+  train_x, train_y, train_x_text = create_batches(train_x, train_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = train_x)
+  valid_x, valid_y, valid_x_text = create_batches(valid_x, valid_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = valid_x)
+  test_x, test_y, test_x_text = create_batches(test_x, test_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = test_x)
 
-  model = Model(args, emb_layer, nclasses, use_cuda)
+
+  model = Model(args, emb_layer, nclasses, use_cuda, args.use_partial)
   if use_cuda:
     model = model.cuda()
 
@@ -343,23 +407,31 @@ def train():
     best_valid, test_result = train_model(epoch, model, optimizer, train_x, train_y,
                                           valid_x, valid_y,
                                           test_x, test_y,
-                                          best_valid, test_result)
+                                          best_valid, test_result, args, valid_x_text, test_x_text, ix2label)
     if args.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= args.lr_decay
     logging.info('Total encoder time: ' + str(model.eval_time))
     logging.info('Total embedding time: ' + str(model.emb_time))
     logging.info('Total classify time: ' + str(model.classify_time))
 
-  logging.info("best_valid: {:.6f}".format(best_valid))
-  logging.info("test_err: {:.6f}".format(test_result))
+  if args.use_partial == 1:
+
+      logging.info("best_f: {:.6f}".format(best_valid))
+      logging.info("test_f: {:.6f}".format(test_result))
+  elif args.use_partial == 0:
+      logging.info("best_acc: {:.6f}".format(best_valid))
+      logging.info("test_acc: {:.6f}".format(test_result))
 
 
 def test():
   cmd = argparse.ArgumentParser('The testing components of')
   cmd.add_argument('--cuda', action='store_true', default=False, help='use cuda')
   cmd.add_argument("--input", help="the path to the test file.")
-  cmd.add_argument('--output', help='the path to the output file.')
+  cmd.add_argument('--gold_pos_path', help='the path to the output file.', type = str)
+  cmd.add_argument('--output', help='the path to the output file.', type = str)
   cmd.add_argument("--model", required=True, help="path to save model")
+  cmd.add_argument("--partial_test", type = int, help="whether use partial test", default=0)
+
   args = cmd.parse_args(sys.argv[2:])
 
   args2 = dict2namedtuple(json.load(codecs.open(os.path.join(args.model, 'config.json'), 'r', encoding='utf-8')))
@@ -380,7 +452,7 @@ def test():
   logging.info('number of labels: {0}'.format(len(label2id)))
 
   use_cuda = args.cuda and torch.cuda.is_available()
-  model = Model(args2, emb_layer, len(label2id), use_cuda)
+  model = Model(args2, emb_layer, len(label2id), use_cuda, args.partial_test)
   model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
 
   test_x, test_y = read_corpus(args.input)
@@ -395,16 +467,48 @@ def test():
   start_time = time.time()
   model.eval()
   pred, gold = [], []
+  count = 0
+  res = []
   for x, y, text in zip(test_x, test_y, test_text):
+
+    count += 1
+    # print(count)
     output, loss = model.forward(x, y)
     pred += output
+    #print("pred{0}".format(pred))
     gold += y
     for word, raw in zip(text, output):
-      print(u'{0}\t{1}'.format(u' '.join(word), u' '.join([id2label[t] for t in raw])), file=fpo)
+      # print(u'{0}\t{1}'.format(u' '.join(word), u' '.join([id2label[t] for t in raw])), file=fpo)
+       temp = []
+       for index_pos, pos in enumerate(word):
+         # print(pos)
+         str_temp = pos + '_' + id2label[raw[index_pos]]
+         temp.append(str_temp)
+       res.append(' '.join(temp))
 
-  correct = map(cmp, flatten(gold), flatten(pred)).count(0)
-  total = len(flatten(gold))
-  logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
+  fpo.write('\n'.join(res))
+  fpo.close()
+
+  # correct = map(cmp, flatten(gold), flatten(pred)).count(0)
+  # total = len(flatten(gold))
+  # logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
+  fp_auto_pos = args.output
+  fp_gold_pos = args.gold_pos_path
+
+  # now, we should resort both of two
+  with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+
+    sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+
+  with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+
+    sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
+  str_gold_pos_path = fp_gold_pos+'text.txt'
+  str_auto_pos_path = fp_auto_pos+'text.txt'
+  # p = subprocess.Popen(['python', './ulits/cal_pos_f.py','--gold_pos_path',fp_gold_pos+'text.txt', '--auto_pos_path',fp_auto_pos+'text.txt'], stdout=subprocess.PIPE)
+  p = subprocess.Popen(['python3', './ulits/cal_pos_f.py','--gold_pos_path',str_gold_pos_path, '--auto_pos_path',str_auto_pos_path], stdout=subprocess.PIPE)
+  for line in p.stdout.readlines():
+      print(line)
 
 
 if __name__ == "__main__":
