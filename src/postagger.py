@@ -442,6 +442,7 @@ def train():
   cmd.add_argument("--mid_order_number", default=0, type = int, help = "in order to shuffle the mid-file name")
 
   args = cmd.parse_args(sys.argv[2:])
+
   print(args)
   torch.manual_seed(args.seed)
   random.seed(args.seed)

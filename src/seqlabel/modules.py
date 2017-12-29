@@ -104,6 +104,7 @@ class ClassifyLayer(nn.Module):
     for i in range(len(y)):
       cur_len = len(y[i])
       indices += [i * max_len + x for x in range(cur_len)]
+    print("standard_indices {0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
@@ -162,7 +163,7 @@ class PartialClassifyLayer(nn.Module):
         count += 1
         if value_word != PARTIAL and value_word != 0:
           indices.append(count)
-    # print("indices  ={0}".format(indices))
+    print("partial_indices  ={0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):

@@ -11,8 +11,9 @@ python2 ../src/postagger.py train \
     --gold_test_path ../outputs/CTB5.1.pos/CTB5.1-test.dat \
     --optimizer adam \
     --lr 0.001 \
-    --batch_size 16 \asdf
+    --batch_size 16 \
     --model ../models/postagger/partial_model \
     --word_embedding ../data/embeddings/zh.100.embed \
     --max_epoch 10 \
     --use_partial 1 \
+    --mid_order_number 0 \
