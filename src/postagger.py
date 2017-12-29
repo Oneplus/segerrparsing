@@ -201,9 +201,8 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
       pred, gold, res = [], [], []
       for x, y in zip(valid_x, valid_y):
         output, loss = model.forward(x, y)
-        # total_loss += loss.data[0]
         pred += output
-        # print("pred{0}".format(pred))
+
         gold += y
       model.train()
       correct = map(cmp, flatten(gold), flatten(pred)).count(0)
@@ -330,21 +329,22 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
 
       fpo.write('\n'.join(res))
 
+      suffix = str(args.mid_order_number)
 
       fpo.close()
       # sort them for the same order, to cal the right f value
-      with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+      with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
 
         sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
         sort.wait()
 
-      with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+      with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
 
         sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
         sort_gold.wait()
 
-      str_gold_pos_path = fp_gold_pos + 'text.txt'
-      str_auto_pos_path = fp_auto_pos + 'text.txt'
+      str_gold_pos_path = fp_gold_pos + suffix
+      str_auto_pos_path = fp_auto_pos + suffix
       p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
       p.wait()
       f = 0
@@ -439,6 +439,7 @@ def train():
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
   cmd.add_argument("--use_partial", default=0, type = int, help = "whether use the partial data")
+  cmd.add_argument("--mid_order_number", default=0, type = int, help = "in order to shuffle the mid-file name")
 
   args = cmd.parse_args(sys.argv[2:])
   print(args)
