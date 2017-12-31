@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from utils import flatten, deep_iter
+import copy
+
 PARTIAL = 0
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
@@ -102,6 +104,7 @@ class ClassifyLayer(nn.Module):
     for i in range(len(y)):
       cur_len = len(y[i])
       indices += [i * max_len + x for x in range(cur_len)]
+    print("standard_indices {0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
@@ -120,6 +123,7 @@ class ClassifyLayer(nn.Module):
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
       tag_scores = F.log_softmax(tag_scores)
+      #print("tag_scores{0}".format(tag_scores))
     _, tag_result = torch.max(tag_scores, 1)
 
     if self.training:
@@ -129,7 +133,7 @@ class ClassifyLayer(nn.Module):
 
 
 class PartialClassifyLayer(nn.Module):
-  def __init__(self, n_in, tag_size, use_cuda=False):
+  def __init__(self, n_in, tag_size,  use_cuda=False):
     super(PartialClassifyLayer, self).__init__()
     self.hidden2tag = nn.Linear(n_in, tag_size)
     self.n_in = n_in
@@ -149,14 +153,17 @@ class PartialClassifyLayer(nn.Module):
     # for i in range(len(y)):
     #   cur_len = len(y[i])
     #   indices += [i * max_len + x for x in range(cur_len)]
-
+    temp_y = copy.deepcopy(y)
+    max_len = max([len(sentence) for sentence in y])
+    temp_y = [sentence + [0] * (max_len - len(sentence)) for sentence in temp_y]
+    # print("temp_y = {0}".format(temp_y))
     count  = -1
-    for index, value in enumerate(y):
+    for index, value in enumerate(temp_y):
       for index_word, value_word in enumerate(value):
         count += 1
-        if value_word != PARTIAL:
+        if value_word != PARTIAL and value_word != 0:
           indices.append(count)
-
+    print("partial_indices  ={0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
@@ -205,7 +212,7 @@ class PartialClassifyLayer(nn.Module):
       tag_scores_partial = F.log_softmax(tag_scores_partial)
     _, tag_result_partial = torch.max(tag_scores_partial, 1)
     _, tag_result = torch.max(tag_scores, 1)
-    print("tag_result.size() = {0}, y.size() = {1}".format(tag_result.size(), tag_vec.size()))
+    # print("tag_result.size() = {0}, y.size() = {1}".format(tag_result.size(), tag_vec.size()))
 
     if self.training:
       return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores_partial, tag_vec, size_average=False)

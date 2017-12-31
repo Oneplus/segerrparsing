@@ -169,9 +169,9 @@ def align(conll_data, segment_data, output):
 
 if __name__ == '__main__':
     cmd = argparse.ArgumentParser('align auto sentence and gold sentence')
-    cmd.add_argument("--gold_conll", help="path of gold conll")
-    cmd.add_argument("--auto_seg", help="path of aligned sentence")
-    cmd.add_argument("--output", help="path of auto sentence")
+    cmd.add_argument("--gold_conll", help="path of gold conll",default='../../data/pos/test.conll')
+    cmd.add_argument("--auto_seg", help="path of aligned sentence",default='../../outputs/fold_1/aligned.txt')
+    cmd.add_argument("--output", help="path of auto sentence",default='../../outputs/fold_1/auto_oneplus.txt')
     args = cmd.parse_args()
 
     conll_data = load_conll_data(args.gold_conll)
