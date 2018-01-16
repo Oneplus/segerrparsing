@@ -54,7 +54,9 @@ def load_segment_data(path):
 def sanity_check(conll_data, segment_data):
   conll_keys = conll_data.keys()
   segment_keys = segment_data.keys()
-  assert set(conll_keys) & set(segment_keys) == set(conll_keys)
+  # print(list(set(conll_keys) - set(segment_keys)))
+  # print(list(set(segment_keys) - set(conll_keys)))
+  assert (set(conll_keys) & set(segment_keys)) == set(conll_keys)
 
   for key in conll_keys:
     assert len(conll_data[key]) == len(segment_data[key])
@@ -169,9 +171,9 @@ def align(conll_data, segment_data, output):
 
 if __name__ == '__main__':
     cmd = argparse.ArgumentParser('align auto sentence and gold sentence')
-    cmd.add_argument("--gold_conll", help="path of gold conll",default='../../data/pos/test.conll')
-    cmd.add_argument("--auto_seg", help="path of aligned sentence",default='../../outputs/fold_1/aligned.txt')
-    cmd.add_argument("--output", help="path of auto sentence",default='../../outputs/fold_1/auto_oneplus.txt')
+    cmd.add_argument("--gold_conll", help="path of gold conll",default='../../data/conll/CTB5.1-devel.gp.conll')
+    cmd.add_argument("--auto_seg", help="path of aligned sentence",default='../../data/conll/auto_devel.sentence')
+    cmd.add_argument("--output", help="path of auto sentence",default='../../data/conll/output.conll')
     args = cmd.parse_args()
 
     conll_data = load_conll_data(args.gold_conll)

@@ -5,6 +5,10 @@ python2 ../src/postagger.py train \
     --train_path ../data/pos/pos_partial_train.txt \
     --valid_path ../data/pos/pos_partial_devel.txt \
     --test_path ../data/pos/pos_partial_test.txt \
+    --auto_test_path
+    --auto_valid_path
+    --gold_valid_path
+    --gold_test_path
     --optimizer adam \
     --lr 0.001 \
     --batch_size 32 \

@@ -77,7 +77,7 @@ def judge_illegal(conll):
     :return:
     '''
     conll = conll.strip().split('\n')
-    print(conll)
+    # print(conll)
     for index, value in enumerate(conll):
 
         if(len(value.strip().split()) != 8):
@@ -122,7 +122,6 @@ def main():
     cmd.add_argument("--gold_conll_path", help = "path of gold conll", default='../../data/pos/test.conll')
     cmd.add_argument("--auto_seg_path", help="path of auto seg", default='../../data/pos/aligned.txt')
     cmd.add_argument("--partial_pos_res", help="path of partial pos res", default='../../data/pos/res_pos.txt')
-
     args = cmd.parse_args()
     transit(args)
 

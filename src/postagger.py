@@ -27,6 +27,22 @@ except:
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 
 
+def eval_sort(path, path_res):
+    '''
+    sort for same order for f cal
+    :return:
+    '''
+    res = []
+    fp = codecs.open(path_res, 'w', encoding='utf-8')
+    dataset = codecs.open(path, 'r', encoding='utf-8').read().strip().split('\n')  # ['','',]
+    # print (dataset)
+    for data in sorted(dataset, key=lambda d: ''.join([str.split('_')[0] for str in d.split()])):
+
+        res.append(data)
+    res_ = '\n'.join(res)
+
+    fp.write(res_)
+
 def read_corpus(path):
   data = []
   labels = []
@@ -196,6 +212,7 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
           fp_gold_pos = args.gold_valid_path
           fp_auto_pos = args.auto_valid_path
       start_time = time.time()
+
       model.eval()
       # total_loss = 0.0
       pred, gold, res = [], [], []
@@ -227,59 +244,11 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
 
       fpo.close()
       # sort them for the same order, to cal the right f value
-      with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
-
-        sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-        sort.wait()
-
-      with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
-
-        sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-        sort_gold.wait()
-
-      str_gold_pos_path = fp_gold_pos + 'text.txt'
-      str_auto_pos_path = fp_auto_pos + 'text.txt'
-      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
-      p.wait()
-      f = 0
-      for line in p.stdout.readlines():
-          print(line)
-          f = line.strip().split()[-1]
-      logging.info("**Evaluate result: acc = {:.6f}, time = {}, f = {}".format(1.0 * correct / total, time.time() - start_time, f))
-      return 1.0 * correct / total
-  elif args.use_partial == 1:
-      # start_time = time.time()
-      # model.eval()
-      # # total_loss = 0.0
-      # pred, gold = [], []
-      #
-      # if type == 'test':
-      #     fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
-      #     fp_gold_pos = args.gold_test_path
-      #     fp_auto_pos = args.auto_test_path
-      # elif type == 'valid':
-      #     fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
-      #     fp_gold_pos = args.gold_valid_path
-      #     fp_auto_pos = args.auto_valid_path
-      #
-      # count = 0
-      # res = []
-      # for x, y, text in zip(valid_x, valid_y, text_):
-      #
-      #     output, loss = model.forward(x, y)
-      #     pred += output
-      #     gold += y
-      #     for word, raw in zip(text, output):
-      #         temp = []
-      #         for index_pos, pos in enumerate(word):
-      #             str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
-      #             temp.append(str_temp)
-      #
-      #         res.append(' '.join(temp))
-      #         count += 1
-      # fpo.write('\n'.join(res))
-      # fpo.close()
-      # # sort them for the same order, to cal the right f value
+      suffix = str(args.mid_order_number)
+      sort_gold_pos_path = fp_gold_pos + suffix
+      sort_auto_pos_path = fp_auto_pos + suffix
+      eval_sort(fp_gold_pos, sort_gold_pos_path)
+      eval_sort(fp_auto_pos, sort_auto_pos_path)
       # with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
       #
       #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
@@ -289,17 +258,21 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
       #
       #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
       #   sort_gold.wait()
-      #
-      # str_gold_pos_path = fp_gold_pos + 'text.txt'
-      # str_auto_pos_path = fp_auto_pos + 'text.txt'
-      # p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
-      # p.wait()
-      # f = 0
-      # for line in p.stdout.readlines():
-      #     print(line)
-      #     f = line.strip().split()[-1]
-      #
-      # return float(f)
+
+      str_gold_pos_path = fp_gold_pos + suffix
+      str_auto_pos_path = fp_auto_pos + suffix
+      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
+
+
+      p.wait()
+      f = 0
+      for line in p.stdout.readlines():
+          print(line)
+          f = line.strip().split()[-1]
+
+      logging.info("**Evaluate result: acc = {:.6f}, time = {}, f = {}".format(1.0 * correct / total, time.time() - start_time, f))
+      return 1.0 * correct / total
+  elif args.use_partial == 1:
       if type == 'test':
           fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
           fp_gold_pos = args.gold_test_path
@@ -333,15 +306,20 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
 
       fpo.close()
       # sort them for the same order, to cal the right f value
-      with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
+      sort_gold_pos_path = fp_gold_pos + suffix
+      sort_auto_pos_path = fp_auto_pos + suffix
+      eval_sort(fp_gold_pos, sort_gold_pos_path)
+      eval_sort(fp_auto_pos, sort_auto_pos_path)
 
-        sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-        sort.wait()
-
-      with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
-
-        sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-        sort_gold.wait()
+      # with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
+      #
+      #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+      #   sort.wait()
+      #
+      # with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
+      #
+      #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
+      #   sort_gold.wait()
 
       str_gold_pos_path = fp_gold_pos + suffix
       str_auto_pos_path = fp_auto_pos + suffix
@@ -456,8 +434,10 @@ def train():
     len(train_y), len(valid_y), len(test_y)))
   logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
     sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
-
-  label_to_ix = {'CIXIN':0}
+  if args.use_partial == 1:
+    label_to_ix = {'CIXIN':0}
+  elif args.use_partial == 0:
+      label_to_ix = {}
   label_to_index(train_y, label_to_ix)
   label_to_index(valid_y, label_to_ix)
   label_to_index(test_y, label_to_ix)
@@ -526,10 +506,10 @@ def train():
 
   if args.use_partial == 1:
 
-      logging.info("best_f: {:.6f}".format(best_valid))
+      logging.info("best_valid_f: {:.6f}".format(best_valid))
       logging.info("test_f: {:.6f}".format(test_result))
   elif args.use_partial == 0:
-      logging.info("best_acc: {:.6f}".format(best_valid))
+      logging.info("best_valid_acc: {:.6f}".format(best_valid))
       logging.info("test_acc: {:.6f}".format(test_result))
 
 
@@ -540,7 +520,7 @@ def test():
   cmd.add_argument('--gold_pos_path', help='the path to the output file.', type = str)
   cmd.add_argument('--output', help='the path to the output file.', type = str)
   cmd.add_argument("--model", required=True, help="path to save model")
-  cmd.add_argument("--partial_test", type = int, help="whether use partial test", default=0)
+  cmd.add_argument("--partial_test", type = int, help="wchether use partial test", default=0)
 
   args = cmd.parse_args(sys.argv[2:])
 
@@ -564,6 +544,8 @@ def test():
   use_cuda = args.cuda and torch.cuda.is_available()
   model = Model(args2, emb_layer, len(label2id), use_cuda, args.partial_test)
   model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
+  if use_cuda:
+      model = model.cuda()
 
   test_x, test_y = read_corpus(args.input)
   label_to_index(test_y, label2id)
@@ -606,17 +588,25 @@ def test():
   fp_gold_pos = args.gold_pos_path
 
   # now, we should resort both of two
-  with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+  sort_gold_pos_path = fp_gold_pos + 'text.txt'
+  sort_auto_pos_path = fp_auto_pos + 'text.txt'
+  eval_sort(fp_gold_pos, sort_gold_pos_path)
+  eval_sort(fp_auto_pos, sort_auto_pos_path)
 
-    sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+  # with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
+  #
+  #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
+  #
+  # with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
+  #
+  #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
 
-  with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
-
-    sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
   str_gold_pos_path = fp_gold_pos+'text.txt'
   str_auto_pos_path = fp_auto_pos+'text.txt'
+
   # p = subprocess.Popen(['python', './ulits/cal_pos_f.py','--gold_pos_path',fp_gold_pos+'text.txt', '--auto_pos_path',fp_auto_pos+'text.txt'], stdout=subprocess.PIPE)
   p = subprocess.Popen(['python3', './ulits/cal_pos_f.py','--gold_pos_path',str_gold_pos_path, '--auto_pos_path',str_auto_pos_path], stdout=subprocess.PIPE)
+  p.wait()
   for line in p.stdout.readlines():
       print(line)
 
