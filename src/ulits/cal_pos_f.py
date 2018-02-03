@@ -32,8 +32,8 @@ def convert(sentence):
 
 def main():
     cmd = argparse.ArgumentParser('for calcutating pos f')
-    cmd.add_argument('--gold_pos_path', help = "gold_pos_path for calcutating pos f", type = str, default='../../data/test_pos_f/gold.txt')
-    cmd.add_argument('--auto_pos_path', help = "auto_pos_path for calcutation pos f", type = str, default='../../data/test_pos_f/auto.txt')
+    cmd.add_argument('--gold_pos_path', help = "gold_pos_path for calcutating pos f", type = str, default='../../data/partial_data/gold_train_pos_sorted.txt')
+    cmd.add_argument('--auto_pos_path', help = "auto_pos_path for calcutation pos f", type = str, default='../../data/partial_data/partial_train_sorted.txt')
 
     args = cmd.parse_args()
 
@@ -47,6 +47,7 @@ def main():
     n_corr, n_pred, n_gold = 0.0, 0.0, 0.0
     for index_gold, gold in enumerate(gold_pos):
         mid_representation_gold = convert(gold)
+
         # print(mid_representation_gold)
         mid_representation_auto = convert(auto_pos[index_gold])
         for auto in mid_representation_auto:
