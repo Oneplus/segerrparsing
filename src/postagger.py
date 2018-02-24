@@ -282,7 +282,7 @@ def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
         pred += output
 
         gold += y
-      model.train()
+      model.eval()
       correct = map(cmp, flatten(gold), flatten(pred)).count(0)
       total = len(flatten(gold))
 
