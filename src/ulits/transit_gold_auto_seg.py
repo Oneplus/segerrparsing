@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+# 自动分词和gold的树库转换为partial的树库
 import argparse
 import codecs
 def is_in_auto(auto_mid_represent, gold_father_represent):
@@ -206,15 +207,15 @@ def transited(args):
 
 def main():
     cmd = argparse.ArgumentParser('transit gold seg to auto seg format conll')
-    cmd.add_argument("--gold_conll_path", help = "the path of gold conll", default='../../outputs/fold_1/test.conll')
-    cmd.add_argument("--auto_seg_adjust_order", help = "the path of auto seg", default='../../outputs/fold_1/aligned.txt')
+    cmd.add_argument("--gold_conll_path", help = "the path of gold conll", default='../../data/conll/CTB5.1-devel.gp.conll')
+    cmd.add_argument("--auto_seg_adjust_order", help = "the path of auto seg", default='../../data/conll/auto_devel.sentence')
 
     # cmd.add_argument("--gold_conll_path", help="the path of gold conll",
     #                  default='../../data/CTB5.1/test/test.conll')
     # cmd.add_argument("--auto_seg_adjust_order", help="the path of auto seg",
     #                  default='../../data/CTB5.1/test/test.txt')
 
-    cmd.add_argument("--auto_conll_path", help = "the path of auto conll", default='../../outputs/fold_1/auto.conll')
+    cmd.add_argument("--auto_conll_path", help = "the path of auto conll", default='../../data/conll/auto_devel.conll')
 
     args = cmd.parse_args()
 

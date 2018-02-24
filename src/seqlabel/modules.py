@@ -104,7 +104,7 @@ class ClassifyLayer(nn.Module):
     for i in range(len(y)):
       cur_len = len(y[i])
       indices += [i * max_len + x for x in range(cur_len)]
-    print("standard_indices {0}".format(indices))
+    # print("standard_indices {0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
@@ -124,8 +124,10 @@ class ClassifyLayer(nn.Module):
     if self.training:
       tag_scores = F.log_softmax(tag_scores)
       #print("tag_scores{0}".format(tag_scores))
-    _, tag_result = torch.max(tag_scores, 1)
+    # print("tag_scores = {0}".format(tag_scores))
 
+    _, tag_result = torch.max(tag_scores, 1)
+    # print("res_index = {0}".format(tag_result))
     if self.training:
       return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average=False)
     else:
@@ -163,7 +165,7 @@ class PartialClassifyLayer(nn.Module):
         count += 1
         if value_word != PARTIAL and value_word != 0:
           indices.append(count)
-    print("partial_indices  ={0}".format(indices))
+    #print("partial_indices  ={0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
@@ -210,10 +212,46 @@ class PartialClassifyLayer(nn.Module):
     if self.training:
       tag_scores = F.log_softmax(tag_scores)
       tag_scores_partial = F.log_softmax(tag_scores_partial)
+
+    r, c = tag_scores.size()
+    if self.use_cuda:
+      a1 = Variable(torch.FloatTensor(r * [10000000])).view(-1, 1).cuda()
+      a2 = Variable(torch.ones(r, c - 1)).cuda()
+    else:
+      a1 = Variable(torch.FloatTensor(r * [10000000])).view(-1, 1)
+      a2 = Variable(torch.ones(r, c - 1))
+    a3 = torch.cat((a1, a2), 1)
+    if self.use_cuda:
+      temp = Variable(torch.zeros(r, c)).cuda()
+    else:
+      temp = Variable(torch.zeros(r, c))
+    # print("origin_tag_scores {0}".format(tag_scores.data.tolist()))
+    tag_scores = torch.addcmul(temp, 1, a3, tag_scores)
+
+    r1, c1 = tag_scores_partial.size()
+    if self.use_cuda:
+      a11 = Variable(torch.FloatTensor(r1 * [10000000])).view(-1, 1).cuda()
+      a21 = Variable(torch.ones(r1, c1 - 1)).cuda()
+    else:
+      a11 = Variable(torch.FloatTensor(r1 * [10000000])).view(-1, 1)
+      a21 = Variable(torch.ones(r1, c1 - 1))
+    a31 = torch.cat((a11, a21), 1)
+    if self.use_cuda:
+      temp = Variable(torch.zeros(r1, c1)).cuda()
+    else:
+      temp = Variable(torch.zeros(r1, c1))
+    # print("origin_tag_scores {0}".format(tag_scores.data.tolist()))
+    tag_scores_partial = torch.addcmul(temp, 1, a31, tag_scores_partial)  # 就是尽量不让它预测0出来
+
+    # print("later_tag_scores {0}".format(tag_scores.data.tolist()))
+
+
     _, tag_result_partial = torch.max(tag_scores_partial, 1)
     _, tag_result = torch.max(tag_scores, 1)
+
     # print("tag_result.size() = {0}, y.size() = {1}".format(tag_result.size(), tag_vec.size()))
 
+    # print("tag_scores_partial = {0}, tag_vec = {1}".format(tag_scores_partial[:50], tag_vec[:50]))
     if self.training:
       return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores_partial, tag_vec, size_average=False)
     else:
