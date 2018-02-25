@@ -36,10 +36,11 @@ def read_corpus(path):
 
       bigram.append([])
       bigram[-1].append('<s>' + unigram[-1][0])  # the current added list
+
       for i in range(len(unigram[-1]) - 1):
         bigram[-1].append(unigram[-1][i] + unigram[-1][i + 1])
       bigram[-1].append(unigram[-1][-1] + '</s>')
-
+      # print(bigram)
       labels.append([])
       for x in label.split():
         labels[-1].append(tag_to_ix[x])
@@ -48,6 +49,7 @@ def read_corpus(path):
 
 def read_data(train_path, valid_path, test_path):
   train_x, train_y = read_corpus(train_path)
+  print("train data pass")
   valid_x, valid_y = read_corpus(valid_path)
   test_x, test_y = read_corpus(test_path)
   return train_x, train_y, valid_x, valid_y, test_x, test_y
@@ -435,6 +437,10 @@ def test():
 
   use_cuda = args.cuda and torch.cuda.is_available()
   model = Model(args2, uni_emb_layer, bi_emb_layer, use_cuda=use_cuda)
+
+  if use_cuda:
+    model = model.cuda()
+
   model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
 
   test_x, test_y = read_corpus(args.input)
