@@ -431,6 +431,9 @@ def train():
   json.dump(vars(args), codecs.open(os.path.join(args.model, 'config.json'), 'w', encoding='utf-8'))
   best_valid, test_result = -1e8, -1e8
   for epoch in range(args.max_epoch):
+    lst = list(range(len(train_x)))
+    random.shuffle(lst)
+    train_x, train_y = [train_x[i] for i in lst], [train_y[i] for i in lst]
     best_valid, test_result = train_model(epoch, model, optimizer, train_x, train_y, valid_x, valid_y,
                                           test_x, test_y,
                                           best_valid, test_result)
