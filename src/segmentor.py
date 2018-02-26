@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import unicode_literals
 import sys
 import os
 import codecs
@@ -28,36 +30,68 @@ ix_to_tag = {ix: tag for tag, ix in tag_to_ix.items()}
 
 
 def read_corpus(path):
-  unigram, bigram, labels = [], [], []
+  """
+  read CoNLL format data.
+
+  :param path:
+  :return:
+  """
+  unigram_dataset, bigram_dataset, labels_dataset = [], [], []
   with codecs.open(path, 'r', encoding='utf-8') as fin:
-    for line in fin:
-      text, label = line.split('\t')
-      unigram.append(text.split())  # add unigram
+    for data in fin.read().strip().split('\n\n'):
+      unigram, bigram, labels = [], [], []
+      lines = data.splitlines()
+      for line in lines:
+        tokens = line.split()
+        if len(tokens) == 6:
+          tokens.insert(1, '\u3000')
+          tokens.insert(2, '\u3000')
+        chars = tokens[1]
+        unigram.extend(list(chars))
+        if len(chars) == 1:
+          labels.append(3)
+        else:
+          for j in range(len(chars)):
+            if j == 0:
+              labels.append(0)
+            elif j == len(chars) - 1:
+              labels.append(2)
+            else:
+              labels.append(1)
+      bigram.append('<s>' + unigram[0])
+      for i in range(len(unigram) - 1):
+        bigram.append(unigram[i] + unigram[i + 1])
+      bigram.append(unigram[-1] + '</s>')
 
-      bigram.append([])
-      bigram[-1].append('<s>' + unigram[-1][0])  # the current added list
-
-      for i in range(len(unigram[-1]) - 1):
-        bigram[-1].append(unigram[-1][i] + unigram[-1][i + 1])
-      bigram[-1].append(unigram[-1][-1] + '</s>')
-      # print(bigram)
-      labels.append([])
-      for x in label.split():
-        labels[-1].append(tag_to_ix[x])
-  return (unigram, bigram), labels
+      unigram_dataset.append(unigram)
+      bigram_dataset.append(bigram)
+      labels_dataset.append(labels)
+  return (unigram_dataset, bigram_dataset), labels_dataset
 
 
 def read_data(train_path, valid_path, test_path):
   train_x, train_y = read_corpus(train_path)
-  print("train data pass")
   valid_x, valid_y = read_corpus(valid_path)
   test_x, test_y = read_corpus(test_path)
   return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', use_cuda=False):
-  lst = range(len(x[0]))
-  lst = sorted(lst, key=lambda i: -len(y[i]))  # descent sort
+def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', sort=True, use_cuda=False):
+  """
+
+  :param x: list[(list(str), list(str))]
+  :param y: list[list[int]]
+  :param batch_size: int
+  :param uni_map2id: dict[str, int]
+  :param bi_map2id: dict[str, int]
+  :param oov:
+  :param sort:
+  :param use_cuda:
+  :return:
+  """
+  lst = list(range(len(x[0])))
+  if sort:
+    lst.sort(key=lambda i_: -len(x[0][i_]))  # descent sort
 
   x1 = [x[0][i] for i in lst]
   x2 = [x[1][i] for i in lst]
@@ -89,13 +123,29 @@ def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', use_cuda=False):
 
 
 # shuffle training examples and create mini-batches
-def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None, sort=True, use_cuda=False, text=None):
-  lst = perm or range(len(x[0]))
-  random.shuffle(lst)
+def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None,
+                   shuffle=True, sort=True, use_cuda=False, text=None):
+  """
+
+  :param x: list[(list(str), list(str))]
+  :param y: list[list[int]]
+  :param batch_size: int
+  :param uni_map2id: dict[str, int]
+  :param bi_map2id: dict[str, int]
+  :param perm:
+  :param shuffle:
+  :param sort:
+  :param use_cuda:
+  :param text:
+  :return:
+  """
+  lst = perm or list(range(len(x[0])))
+  if shuffle:
+    random.shuffle(lst)
 
   # sort sequences based on their length; necessary for SST
   if sort:
-    lst = sorted(lst, key=lambda i: -len(y[i]))
+    lst.sort(key=lambda i_: -len(x[0][i_]))
 
   x = ([x[0][i] for i in lst], [x[1][i] for i in lst])  # descend by len(sentence)
   y = [y[i] for i in lst]
@@ -108,25 +158,27 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None, sort=True
   batches_text = []
   size = batch_size
   nbatch = (len(x[0]) - 1) // size + 1  # the number of batch
+  ninst = 0
   for i in range(nbatch):
     start_id, end_id = i * size, (i + 1) * size
     bx, by = create_one_batch((x[0][start_id: end_id], x[1][start_id: end_id]), y[start_id: end_id],
-                                uni_map2id, bi_map2id, use_cuda=use_cuda)
-    sum_len += len(by[0])
+                              uni_map2id, bi_map2id, sort=sort, use_cuda=use_cuda)
+    sum_len += sum([len(y_) for y_ in by])
+    ninst += len(by)
     batches_x.append(bx)
     batches_y.append(by)
     if text is not None:
       batches_text.append(text[start_id: end_id])
 
   if sort:
-    perm = range(nbatch)
+    perm = list(range(nbatch))
     random.shuffle(perm)
     batches_x = [batches_x[i] for i in perm]
     batches_y = [batches_y[i] for i in perm]
     if text is not None:
       batches_text = [batches_text[i] for i in perm]
 
-  logging.info("{} batches, avg len: {:.1f}".format(nbatch, sum_len / nbatch))
+  logging.info("{} batches, avg len: {:.1f}".format(nbatch, sum_len / ninst))
 
   if text is not None:
     return batches_x, batches_y, batches_text
@@ -141,7 +193,8 @@ class Model(nn.Module):
     self.uni_emb_layer = uni_emb_layer
     self.bi_emb_layer = bi_emb_layer
 
-    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2
+    # input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2
+    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d
     if args.encoder.lower() == 'cnn':
       self.encoder = MultiLayerCNN(input_dim, args.hidden_dim, args.depth, args.dropout)
       encoded_dim = args.hidden_dim
@@ -180,13 +233,14 @@ class Model(nn.Module):
       rb_indices = rb_indices.cuda()
 
     left_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, lb_indices)
-    right_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, rb_indices)
+    # right_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, rb_indices)
 
     unigram = self.uni_emb_layer(unigram)
     left_bigram = self.bi_emb_layer(left_bigram)
-    right_bigram = self.bi_emb_layer(right_bigram)
+    # right_bigram = self.bi_emb_layer(right_bigram)
 
-    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
+    # emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
+    emb = torch.cat((unigram, left_bigram), 2)  # cat those feature as the final features
     emb = F.dropout(emb, self.args.dropout, self.training)
 
     if not self.training:
@@ -202,7 +256,7 @@ class Model(nn.Module):
     elif self.args.encoder.lower() == 'dilated':
       output = self.encoder(emb)
     else:
-      raise ValueError('unknown encoder: {0}'.format(self.encoder))
+      raise ValueError('Unknown encoder: {0}'.format(self.encoder))
 
     if self.training:
       self.train_time += time.time() - start_time
@@ -218,7 +272,7 @@ class Model(nn.Module):
     return output, loss
 
 
-def eval_model(niter, model, valid_x, valid_y):
+def eval_model(model, valid_x, valid_y):
   start_time = time.time()
   model.eval()
   # total_loss = 0.0
@@ -232,14 +286,13 @@ def eval_model(niter, model, valid_x, valid_y):
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
   p, r, f = f_score(gold, pred)
-  logging.info("**Evaluate result: acc = {:.6f}, P = {:.6f}, R = {:.6f}, F = {:.6f} time = {}".format(
+  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
   return f
 
 
 def train_model(epoch, model, optimizer,
-                train_x, train_y, valid_x, valid_y,
-                test_x, test_y,
+                train_x, train_y, valid_x, valid_y, test_x, test_y,
                 best_valid, test_result):
   model.train()
   args = model.args
@@ -260,53 +313,36 @@ def train_model(epoch, model, optimizer,
     torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
-      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={}".format(
-        epoch, cnt,
-        optimizer.param_groups[0]['lr'],
+      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}".format(
+        epoch, cnt, optimizer.param_groups[0]['lr'],
         1.0 * total_loss / total_tag,
         time.time() - start_time
       ))
       start_time = time.time()
 
-  valid_result = eval_model(niter, model, valid_x, valid_y)
-
-  logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_F1={:.6f}".format(epoch, niter,
-                                                                                     optimizer.param_groups[0]['lr'],
-                                                                                     loss.data[0], valid_result))
+  valid_result = eval_model(model, valid_x, valid_y)
+  logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_F1={:.6f}".format(
+    epoch, niter, optimizer.param_groups[0]['lr'], loss.data[0], valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
     best_valid = valid_result
-    test_result = eval_model(niter, model, test_x, test_y)
-    logging.info("Epoch={} iter={} lr={:.6f} test_F1={:.6f}".format(epoch, niter, optimizer.param_groups[0]['lr'],
-                                                                    test_result))
+    test_result = eval_model(model, test_x, test_y)
+    logging.info('New best achieved.')
+    logging.info("Epoch={} iter={} lr={:.6f} test_F1={:.6f}".format(
+      epoch, niter, optimizer.param_groups[0]['lr'], test_result))
 
   return best_valid, test_result
 
 
-def get_batch_result(text, predict_y):
-  """
-  得到一个batch下的x, predcit_y， 特别注意它的x是pad的，但是y不是pad的
-  :param x:
-  :param predict_y:
-  :param bi_emb_layer  用来映射word2id
-  :return:   type:str
-  """
-  ret = []
-  batch_size = len(text)
-  for i in range(batch_size):
-    sentence_y = predict_y[i]
-    ret.append(u'{0}\t{1}'.format(u' '.join(text[i]), u' '.join([ix_to_tag[y] for y in sentence_y])))
-  return u'\n'.join(ret)
-
-
 def train():
-  cmd = argparse.ArgumentParser('The training components of torch sequence labeling.')
+  cmd = argparse.ArgumentParser('{0} train'.format(__file__))
   cmd.add_argument('--seed', default=1, type=int, help='the random seed.')
   cmd.add_argument('--cuda', action='store_true', default=False, help='use cuda')
-  cmd.add_argument('--encoder', default='lstm', help='the type of encoder: '
-                                                     'valid options=[lstm, sru, gcnn, cnn, dilated]')
-  cmd.add_argument('--optimizer', default='sgd', help='the type of optimizer: valid options=[sgd, adam]')
+  cmd.add_argument('--encoder', default='lstm', choices=['lstm'],
+                   help='the type of encoder: valid options=[lstm, sru, gcnn, cnn, dilated]')
+  cmd.add_argument('--optimizer', default='sgd', choices=['sgd', 'adam'],
+                   help='the type of optimizer: valid options=[sgd, adam]')
   cmd.add_argument('--train_path', required=True, help='the path to the training file.')
   cmd.add_argument('--valid_path', required=True, help='the path to the validation file.')
   cmd.add_argument('--test_path', required=True, help='the path to the testing file.')
@@ -322,6 +358,7 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
+  cmd.add_argument('--script', required=True, help='The path to the evaluation script')
   args = cmd.parse_args(sys.argv[2:])
   print(args)
   torch.manual_seed(args.seed)
@@ -330,12 +367,10 @@ def train():
   use_cuda = args.cuda and torch.cuda.is_available()
   train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.train_path, args.valid_path, args.test_path)
 
-  logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(len(train_y),
-                                                                                           len(valid_y),
-                                                                                           len(test_y)))
-  logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(sum([len(seq) for seq in train_y]),
-                                                                                     sum([len(seq) for seq in valid_y]),
-                                                                                     sum([len(seq) for seq in test_y])))
+  logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
+    len(train_y), len(valid_y), len(test_y)))
+  logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
+    sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
 
   def extend(words, word2id, oov='<oov>', pad='<pad>'):
     for w in deep_iter(words):
@@ -359,12 +394,14 @@ def train():
   logging.info('bigram embedding size: ' + str(len(bi_emb_layer.word2id)))
 
   nclasses = 4
-  train_x, train_y = create_batches(train_x, train_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
-                                    use_cuda=use_cuda)
-  valid_x, valid_y = create_batches(valid_x, valid_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
-                                    use_cuda=use_cuda)
-  test_x, test_y = create_batches(test_x, test_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
-                                  use_cuda=use_cuda)
+  train_x, train_y = create_batches(
+    train_x, train_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id, use_cuda=use_cuda)
+  valid_x, valid_y = create_batches(
+    valid_x, valid_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    shuffle=False, sort=False, use_cuda=use_cuda)
+  test_x, test_y = create_batches(
+    test_x, test_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    shuffle=False, sort=False, use_cuda=use_cuda)
 
   model = Model(args, uni_emb_layer, bi_emb_layer, nclasses, use_cuda=use_cuda)
   if use_cuda:
@@ -385,12 +422,12 @@ def train():
   # save unigram dict.
   with codecs.open(os.path.join(args.model, 'unigram.dic'), 'w', encoding='utf-8') as fpo:
     for word, i in uni_emb_layer.word2id.items():
-      print(u'{0}\t{1}'.format(word, i), file=fpo)
+      print('{0}\t{1}'.format(word, i), file=fpo)
 
   # save bigram dict.
   with codecs.open(os.path.join(args.model, 'bigram.dic'), 'w', encoding='utf-8') as fpo:
     for word, i in bi_emb_layer.word2id.items():
-      print(u'{0}\t{1}'.format(word, i), file=fpo)
+      print('{0}\t{1}'.format(word, i), file=fpo)
 
   json.dump(vars(args), codecs.open(os.path.join(args.model, 'config.json'), 'w', encoding='utf-8'))
   best_valid, test_result = -1e8, -1e8
@@ -400,9 +437,9 @@ def train():
                                           best_valid, test_result)
     if args.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= args.lr_decay
-    logging.info('Total encoder time: ' + str(model.eval_time))
-    logging.info('Total embedding time: ' + str(model.emb_time))
-    logging.info('Total classify time: ' + str(model.classify_time))
+    logging.info('Total encoder time: {:.2f}'.format(model.eval_time))
+    logging.info('Total embedding time: {:.2f}'.format(model.emb_time))
+    logging.info('Total classify time: {:.2f}'.format(model.classify_time))
 
   logging.info("best_valid: {:.6f}".format(best_valid))
   logging.info("test_err: {:.6f}".format(test_result))
@@ -445,12 +482,12 @@ def test():
 
   test_x, test_y = read_corpus(args.input)
   test_x, test_y, test_text = create_batches(test_x, test_y, args2.batch_size, uni_lexicon, bi_lexicon,
-                                             use_cuda=use_cuda, text=test_x)
+                                             shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
   if args.output is not None:
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
   else:
-    fpo = sys.stdout
+    fpo = codecs.getwriter('utf8')(sys.stdout)
   start_time = time.time()
   model.eval()
   pred, gold = [], []
@@ -458,12 +495,25 @@ def test():
     output, loss = model.forward(x, y)
     pred += output
     gold += y
-    print(get_batch_result(text, output), file=fpo)
+    batch_size = len(text)
+    for bid in range(batch_size):
+      words, word = [], ''
+      for ch, tag in zip(text[bid], output[bid]):
+        tag = ix_to_tag[tag]
+        if tag in ('B', 'S'):
+          if len(word) > 0:
+            words.append(word)
+          word = ''
+        else:
+          word += ch
+      for k, word in enumerate(words):
+        print('{0}\t{1}\t{1}\t_\t_\t_\t_\t_'.format(k + 1, word, word), file=fpo)
+      print(file=fpo)
 
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
   p, r, f = f_score(gold, pred)
-  logging.info("**Evaluate result: acc = {:.6f}, P = {:.6f}, R = {:.6f}, F = {:.6f} time = {}".format(
+  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
 
 
@@ -474,6 +524,3 @@ if __name__ == "__main__":
     test()
   else:
     print('Usage: {0} [train|test] [options]'.format(sys.argv[0]), file=sys.stderr)
-
-
-
