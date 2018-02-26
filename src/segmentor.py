@@ -286,7 +286,7 @@ def eval_model(model, valid_x, valid_y):
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
   p, r, f = f_score(gold, pred)
-  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}".format(
+  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}s.".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
   return f
 
@@ -313,7 +313,7 @@ def train_model(epoch, model, optimizer,
     torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
-      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}".format(
+      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s.".format(
         epoch, cnt, optimizer.param_groups[0]['lr'],
         1.0 * total_loss / total_tag,
         time.time() - start_time
@@ -358,7 +358,6 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
-  cmd.add_argument('--script', required=True, help='The path to the evaluation script')
   args = cmd.parse_args(sys.argv[2:])
   print(args)
   torch.manual_seed(args.seed)
@@ -437,9 +436,9 @@ def train():
                                           best_valid, test_result)
     if args.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= args.lr_decay
-    logging.info('Total encoder time: {:.2f}'.format(model.eval_time))
-    logging.info('Total embedding time: {:.2f}'.format(model.emb_time))
-    logging.info('Total classify time: {:.2f}'.format(model.classify_time))
+    logging.info('Total encoder time: {:.2f}s.'.format(model.eval_time))
+    logging.info('Total embedding time: {:.2f}s.'.format(model.emb_time))
+    logging.info('Total classify time: {:.2f}s.'.format(model.classify_time))
 
   logging.info("best_valid: {:.6f}".format(best_valid))
   logging.info("test_err: {:.6f}".format(test_result))
@@ -487,7 +486,7 @@ def test():
   if args.output is not None:
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
   else:
-    fpo = codecs.getwriter('utf8')(sys.stdout)
+    fpo = codecs.getwriter('utf-8')(sys.stdout)
   start_time = time.time()
   model.eval()
   pred, gold = [], []
@@ -503,9 +502,10 @@ def test():
         if tag in ('B', 'S'):
           if len(word) > 0:
             words.append(word)
-          word = ''
+          word = ch
         else:
           word += ch
+      words.append(word)
       for k, word in enumerate(words):
         print('{0}\t{1}\t{1}\t_\t_\t_\t_\t_'.format(k + 1, word, word), file=fpo)
       print(file=fpo)
@@ -513,7 +513,7 @@ def test():
   correct = map(cmp, flatten(gold), flatten(pred)).count(0)
   total = len(flatten(gold))
   p, r, f = f_score(gold, pred)
-  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}".format(
+  logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}s.".format(
     1.0 * correct / total, p, r, f, time.time() - start_time))
 
 
