@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
 import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from utils import flatten, deep_iter
+from .utils import flatten, deep_iter
 import copy
 
 PARTIAL = 0
@@ -97,10 +99,11 @@ class ClassifyLayer(nn.Module):
     self.hidden2tag = nn.Linear(n_in, tag_size)
     self.n_in = n_in
     self.use_cuda = use_cuda
+    self.softmax = nn.Softmax(dim=1)
 
   def _get_indices(self, y):
     indices = []
-    max_len = len(y[0])
+    max_len = max([len(_) for _ in y])
     for i in range(len(y)):
       cur_len = len(y[i])
       indices += [i * max_len + x for x in range(cur_len)]
@@ -122,9 +125,7 @@ class ClassifyLayer(nn.Module):
       else Variable(torch.LongTensor(self._get_indices(y)))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
-      tag_scores = F.log_softmax(tag_scores)
-      #print("tag_scores{0}".format(tag_scores))
-    # print("tag_scores = {0}".format(tag_scores))
+      tag_scores = self.softmax(tag_scores)
 
     _, tag_result = torch.max(tag_scores, 1)
     # print("res_index = {0}".format(tag_result))
@@ -134,27 +135,12 @@ class ClassifyLayer(nn.Module):
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
 
 
-class PartialClassifyLayer(nn.Module):
+class PartialClassifyLayer(ClassifyLayer):
   def __init__(self, n_in, tag_size,  use_cuda=False):
-    super(PartialClassifyLayer, self).__init__()
-    self.hidden2tag = nn.Linear(n_in, tag_size)
-    self.n_in = n_in
-    self.use_cuda = use_cuda
-
-  def _get_indices(self, y):
-    indices = []
-    max_len = len(y[0])
-    for i in range(len(y)):
-      cur_len = len(y[i])
-      indices += [i * max_len + x for x in range(cur_len)]
-    return indices
+    super(PartialClassifyLayer, self).__init__(n_in, tag_size, use_cuda)
 
   def _get_indices_except_partical(self, y):
     indices = []
-    # max_len = len(y[0])
-    # for i in range(len(y)):
-    #   cur_len = len(y[i])
-    #   indices += [i * max_len + x for x in range(cur_len)]
     temp_y = copy.deepcopy(y)
     max_len = max([len(sentence) for sentence in y])
     temp_y = [sentence + [0] * (max_len - len(sentence)) for sentence in temp_y]
@@ -165,19 +151,9 @@ class PartialClassifyLayer(nn.Module):
         count += 1
         if value_word != PARTIAL and value_word != 0:
           indices.append(count)
-    #print("partial_indices  ={0}".format(indices))
     return indices
 
   def _get_tag_list(self, tag_result, y):
-    # b = []
-    # temp_y = y
-    # for i in range(len(temp_y)):
-    #   temp = []
-    #   for value in temp_y[i]:
-    #     if value!=PARTIAL:
-    #       temp.append(value)
-    #   b.append(temp)
-
     # y = b
     tag_list = []
     last = 0
@@ -244,7 +220,6 @@ class PartialClassifyLayer(nn.Module):
     tag_scores_partial = torch.addcmul(temp, 1, a31, tag_scores_partial)  # 就是尽量不让它预测0出来
 
     # print("later_tag_scores {0}".format(tag_scores.data.tolist()))
-
 
     _, tag_result_partial = torch.max(tag_scores_partial, 1)
     _, tag_result = torch.max(tag_scores, 1)
