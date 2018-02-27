@@ -255,14 +255,14 @@ def train_model(epoch, model, optimizer,
       logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s".format(
         epoch, cnt,
         optimizer.param_groups[0]['lr'],
-        1.0 * total_loss / total_tag,
+        1.0 * loss.data[0] / total_tag,
         time.time() - start_time
       ))
       start_time = time.time()
 
   valid_result = eval_model(model, valid_x, valid_y, valid_text, ix2label, args, args.gold_valid_path)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
-    epoch, niter, optimizer.param_groups[0]['lr'], loss.data[0], valid_result))
+    epoch, niter, optimizer.param_groups[0]['lr'], total_loss, valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
