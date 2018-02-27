@@ -99,7 +99,8 @@ class ClassifyLayer(nn.Module):
     self.hidden2tag = nn.Linear(n_in, tag_size)
     self.n_in = n_in
     self.use_cuda = use_cuda
-    self.softmax = nn.Softmax(dim=1)
+    self.logsoftmax = nn.LogSoftmax(dim=1)
+    self.criterion = nn.NLLLoss()
 
   def _get_indices(self, y):
     indices = []
@@ -125,12 +126,12 @@ class ClassifyLayer(nn.Module):
       else Variable(torch.LongTensor(self._get_indices(y)))
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
-      tag_scores = self.softmax(tag_scores)
+      tag_scores = self.logsoftmax(tag_scores)
 
     _, tag_result = torch.max(tag_scores, 1)
     # print("res_index = {0}".format(tag_result))
     if self.training:
-      return self._get_tag_list(tag_result.view(1, -1), y), F.nll_loss(tag_scores, tag_vec, size_average=False)
+      return self._get_tag_list(tag_result.view(1, -1), y), self.criterion(tag_scores, tag_vec)
     else:
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
 

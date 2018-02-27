@@ -227,13 +227,14 @@ def eval_model(model, valid_x, valid_y, valid_text, ix2label, args, gold_path):
 
 
 def train_model(epoch, model, optimizer,
-                train_x, train_y, valid_x, valid_y, valid_text, test_x, test_y, test_text, ix2label):
+                train_x, train_y, valid_x, valid_y, valid_text, test_x, test_y, test_text,
+                ix2label, best_valid, test_result):
   model.train()
   args = model.args
   niter = epoch * len(train_x[0])
 
   total_loss, total_tag = 0.0, 0
-  best_valid, test_result = 0., 0.
+  test_result = 0.
   cnt = 0
   start_time = time.time()
 
@@ -247,22 +248,21 @@ def train_model(epoch, model, optimizer,
     model.zero_grad()
     output, loss = model.forward(x, y)
     total_loss += loss.data[0]
-    total_tag += len(flatten(output))
+    n_tags = len(flatten(output))
+    total_tag += n_tags
     loss.backward()
     torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
       logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s".format(
-        epoch, cnt,
-        optimizer.param_groups[0]['lr'],
-        1.0 * loss.data[0] / total_tag,
-        time.time() - start_time
+        epoch, cnt, optimizer.param_groups[0]['lr'],
+        1.0 * loss.data[0] / n_tags, time.time() - start_time
       ))
       start_time = time.time()
 
   valid_result = eval_model(model, valid_x, valid_y, valid_text, ix2label, args, args.gold_valid_path)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
-    epoch, niter, optimizer.param_groups[0]['lr'], total_loss, valid_result))
+    epoch, niter, optimizer.param_groups[0]['lr'], total_loss / total_tag, valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
@@ -395,7 +395,7 @@ def train():
   for epoch in range(opt.max_epoch):
     best_valid, test_result = train_model(epoch, model, optimizer,
                                           train_x, train_y, valid_x, valid_y, valid_text, test_x, test_y, test_text,
-                                          ix2label)
+                                          ix2label, best_valid, test_result)
     if opt.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= opt.lr_decay
     logging.info('Total encoder time: {:.2f}s'.format(model.eval_time))

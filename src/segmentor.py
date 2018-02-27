@@ -296,8 +296,8 @@ def train_model(epoch, model, optimizer,
   args = model.args
   niter = epoch * len(train_x[0])  # for statis and output log
 
-  total_loss = 0.0
-  total_tag = 0
+  total_loss, total_tag = 0.0, 0
+  test_result = 0.
   cnt = 0
   start_time = time.time()
 
@@ -312,18 +312,19 @@ def train_model(epoch, model, optimizer,
     model.zero_grad()
     output, loss = model.forward(x, y)  # x,y batch*sentence_len
     total_loss += loss.data[0]
-    total_tag += len(flatten(output))
+    n_tags = len(flatten(output))
+    total_tag += n_tags
     loss.backward()
     torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
       logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s.".format(
-        epoch, cnt, optimizer.param_groups[0]['lr'], 1.0 * loss.data[0] / total_tag, time.time() - start_time))
+        epoch, cnt, optimizer.param_groups[0]['lr'], 1.0 * loss.data[0] / n_tags, time.time() - start_time))
       start_time = time.time()
 
   valid_result = eval_model(model, valid_x, valid_y)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_F1={:.6f}".format(
-    epoch, niter, optimizer.param_groups[0]['lr'], total_loss, valid_result))
+    epoch, niter, optimizer.param_groups[0]['lr'], total_loss / total_tag, valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
@@ -439,8 +440,8 @@ def train():
   json.dump(vars(opt), codecs.open(os.path.join(opt.model, 'config.json'), 'w', encoding='utf-8'))
   best_valid, test_result = -1e8, -1e8
   for epoch in range(opt.max_epoch):
-    best_valid, test_result = train_model(epoch, model, optimizer, train_x, train_y, valid_x, valid_y,
-                                          test_x, test_y,
+    best_valid, test_result = train_model(epoch, model, optimizer,
+                                          train_x, train_y, valid_x, valid_y, test_x, test_y,
                                           best_valid, test_result)
     if opt.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= opt.lr_decay
