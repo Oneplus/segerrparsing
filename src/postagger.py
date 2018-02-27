@@ -262,7 +262,7 @@ def train_model(epoch, model, optimizer,
 
   valid_result = eval_model(model, valid_x, valid_y, valid_text, ix2label, args, args.gold_valid_path)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
-    epoch, niter, optimizer.param_groups[0]['lr'], total_loss / total_tag, valid_result))
+    epoch, niter, optimizer.param_groups[0]['lr'], total_loss, valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
