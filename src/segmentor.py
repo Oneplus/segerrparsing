@@ -193,8 +193,7 @@ class Model(nn.Module):
     self.uni_emb_layer = uni_emb_layer
     self.bi_emb_layer = bi_emb_layer
 
-    # input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2
-    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d
+    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2
     if args.encoder.lower() == 'cnn':
       self.encoder = MultiLayerCNN(input_dim, args.hidden_dim, args.depth, args.dropout)
       encoded_dim = args.hidden_dim
@@ -233,14 +232,13 @@ class Model(nn.Module):
       rb_indices = rb_indices.cuda()
 
     left_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, lb_indices)
-    # right_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, rb_indices)
+    right_bigram = torch.index_select(Variable(x[1]).cuda() if self.use_cuda else Variable(x[1]), 1, rb_indices)
 
     unigram = self.uni_emb_layer(unigram)
     left_bigram = self.bi_emb_layer(left_bigram)
-    # right_bigram = self.bi_emb_layer(right_bigram)
+    right_bigram = self.bi_emb_layer(right_bigram)
 
-    # emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
-    emb = torch.cat((unigram, left_bigram), 2)  # cat those feature as the final features
+    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
     emb = F.dropout(emb, self.args.dropout, self.training)
 
     if not self.training:
