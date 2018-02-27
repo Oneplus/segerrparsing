@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-
 from __future__ import print_function
+from __future__ import unicode_literals
 import os
 import errno
 import sys
@@ -10,6 +10,7 @@ import time
 import random
 import logging
 import json
+import tempfile
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,7 +20,6 @@ from seqlabel.modules import MultiLayerCNN, GatedCNN, DilatedCNN, ClassifyLayer,
 from seqlabel.dataloader import load_embedding, pad
 from seqlabel.utils import flatten, deep_iter, dict2namedtuple
 import subprocess
-ix2label = {}
 try:
   import seqlabel.cuda_functional as MF
 except:
@@ -27,34 +27,28 @@ except:
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)s: %(message)s')
 
 
-def eval_sort(path, path_res):
-    '''
-    sort for same order for f cal
-    :return:
-    '''
-    res = []
-    fp = codecs.open(path_res, 'w', encoding='utf-8')
-    dataset = codecs.open(path, 'r', encoding='utf-8').read().strip().split('\n')  # ['','',]
-    # print (dataset)
-    for data in sorted(dataset, key=lambda d: ''.join([str.split('_')[0] for str in d.split()])):
-
-        res.append(data)
-    res_ = '\n'.join(res)
-
-    fp.write(res_)
-
 def read_corpus(path):
-  data = []
-  labels = []
+  """
+  read CoNLL format data.
+
+  :param path:
+  :return:
+  """
+  dataset = []
+  labels_dataset = []
   with codecs.open(path, 'r', encoding='utf-8') as fin:
-    for line in fin:
-      terms = line.strip().split()
-      data.append([])
-      labels.append([])
-      for term in terms:
-        data[-1].append(term.split(u'_')[0])
-        labels[-1].append(term.split(u'_')[1])
-  return data, labels
+    for lines in fin.read().strip().split('\n\n'):
+      data, labels = [], []
+      for line in lines.splitlines():
+        tokens = line.split()
+        if len(tokens) == 6:
+          tokens.insert(1, '\u3000')
+          tokens.insert(2, '\u3000')
+        data.append(tokens[1])
+        labels.append(tokens[3])
+      dataset.append(data)
+      labels_dataset.append(labels)
+  return dataset, labels_dataset
 
 
 def read_data(train_path, valid_path, test_path):
@@ -64,9 +58,10 @@ def read_data(train_path, valid_path, test_path):
   return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def create_one_batch(x, y, map2id, oov='<oov>', use_cuda=False):
-  lst = range(len(x))
-  lst = sorted(lst, key=lambda i: -len(y[i]))
+def create_one_batch(x, y, map2id, oov='<oov>', sort=True, use_cuda=False):
+  lst = list(range(len(x)))
+  if sort:
+    lst.sort(key=lambda l: -len(x[l]))
 
   x = [x[i] for i in lst]
   y = [y[i] for i in lst]
@@ -85,12 +80,13 @@ def create_one_batch(x, y, map2id, oov='<oov>', use_cuda=False):
 
 
 # shuffle training examples and create mini-batches
-def create_batches(x, y, batch_size, map2id, perm=None, sort=True, use_cuda=False, text=None):
+def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True, use_cuda=False, text=None):
   lst = perm or range(len(x))
-  random.shuffle(lst)
+  if shuffle:
+    random.shuffle(lst)
 
   if sort:
-    lst = sorted(lst, key=lambda i: -len(y[i]))
+    lst.sort(key=lambda l: -len(x[l]))
 
   x = [x[i] for i in lst]
   y = [y[i] for i in lst]
@@ -105,7 +101,7 @@ def create_batches(x, y, batch_size, map2id, perm=None, sort=True, use_cuda=Fals
   nbatch = (len(x) - 1) // size + 1
   for i in range(nbatch):
     start_id, end_id = i * size, (i + 1) * size
-    bx, by = create_one_batch(x[start_id: end_id], y[start_id: end_id], map2id, use_cuda=use_cuda)
+    bx, by = create_one_batch(x[start_id: end_id], y[start_id: end_id], map2id, sort=sort, use_cuda=use_cuda)
     sum_len += len(by[0])
     batches_x.append(bx)
     batches_y.append(by)
@@ -201,272 +197,50 @@ class Model(nn.Module):
     return output, loss
 
 
-def eval_model(niter, model, valid_x, valid_y, args, type, text_, ix2label):
-  if args.use_partial == 0:
-      if type == 'test':
-          fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_test_path
-          fp_auto_pos = args.auto_test_path
-      elif type == 'valid':
-          fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_valid_path
-          fp_auto_pos = args.auto_valid_path
-      elif type == 'train':
-          fpo = codecs.open(args.auto_train_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_train_path
-          fp_auto_pos = args.auto_train_path
+def eval_model(model, valid_x, valid_y, valid_text, ix2label, args, gold_path):
+  if args.output is not None:
+    path = args.output
+    fpo = codecs.open(output, 'w', encoding='utf-8')
+  else:
+    descriptor, path = tempfile.mkstemp(suffix='.tmp')
+    fpo = codecs.getwriter('utf-8')(os.fdopen(descriptor, 'w'))
 
-          start_time = time.time()
+  model.eval()
+  pred, gold = [], []
+  for x, y, text in zip(valid_x, valid_y, valid_text):
+    output, loss = model.forward(x, y)
+    pred += output
+    gold += y
+    for bid in range(len(x)):
+      for k, (word, tag) in enumerate(zip(text[bid], output[bid])):
+        tag = ix2label[tag]
+        print('{0}\t{1}\t{1}\t{2}\t{2}\t_\t_\t_'.format(k + 1, word, tag), file=fpo)
+      print(file=fpo)
+  fpo.close()
 
-          model.eval()
-          # total_loss = 0.0
-          pred, gold, res = [], [], []
-
-          for x, y, text in zip(valid_x, valid_y, text_):
-
-              output, loss = model.forward(x, y)
-              pred += output
-              gold += y
-              for word, raw in zip(text, output):
-                  temp = []
-                  for index_pos, pos in enumerate(word):
-                      str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
-                      temp.append(str_temp)
-
-                  res.append(' '.join(temp))
-
-          fpo.write('\n'.join(res))
-
-          suffix = str(args.mid_order_number)
-
-          fpo.close()
-          # sort them for the same order, to cal the right f value
-          sort_gold_pos_path = fp_gold_pos + suffix
-          sort_auto_pos_path = fp_auto_pos + suffix
-          eval_sort(fp_gold_pos, sort_gold_pos_path)
-          eval_sort(fp_auto_pos, sort_auto_pos_path)
-
-          # with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
-          #
-          #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-          #   sort.wait()
-          #
-          # with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
-          #
-          #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-          #   sort_gold.wait()
-
-          str_gold_pos_path = fp_gold_pos + suffix
-          str_auto_pos_path = fp_auto_pos + suffix
-          print("-------------------eval training begins-------------------")
-          p = subprocess.Popen(
-              ['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path',
-               str_auto_pos_path], stdout=subprocess.PIPE)
-          p.wait()
-          f = 0
-
-          for line in p.stdout.readlines():
-              print(line)
-              f = line.strip().split()[-1]
-          print("-------------------eval training ends-------------------")
-          print("\n")
-          return float(f)
-
-      start_time = time.time()
-
-      model.eval()
-      # total_loss = 0.0
-      pred, gold, res = [], [], []
-      for x, y in zip(valid_x, valid_y):
-        output, loss = model.forward(x, y)
-        pred += output
-
-        gold += y
-      model.eval()
-      correct = map(cmp, flatten(gold), flatten(pred)).count(0)
-      total = len(flatten(gold))
-
-
-      for x, y, text in zip(valid_x, valid_y, text_):
-
-          output, loss = model.forward(x, y)
-          pred += output
-          gold += y
-          for word, raw in zip(text, output):
-              temp = []
-              for index_pos, pos in enumerate(word):
-                  str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
-                  temp.append(str_temp)
-
-              res.append(' '.join(temp))
-
-      fpo.write('\n'.join(res))
-
-
-      fpo.close()
-      # sort them for the same order, to cal the right f value
-      suffix = str(args.mid_order_number)
-      sort_gold_pos_path = fp_gold_pos + suffix
-      sort_auto_pos_path = fp_auto_pos + suffix
-      eval_sort(fp_gold_pos, sort_gold_pos_path)
-      eval_sort(fp_auto_pos, sort_auto_pos_path)
-      # with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
-      #
-      #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-      #   sort.wait()
-      #
-      # with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
-      #
-      #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-      #   sort_gold.wait()
-
-      str_gold_pos_path = fp_gold_pos + suffix
-      str_auto_pos_path = fp_auto_pos + suffix
-      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
-
-
-      p.wait()
-      f = 0
-      for line in p.stdout.readlines():
-          print(line)
-          f = line.strip().split()[-1]
-
-      logging.info("**Evaluate result: acc = {:.6f}, time = {}, f = {}".format(1.0 * correct / total, time.time() - start_time, f))
-      return 1.0 * correct / total
-  elif args.use_partial == 1:
-      if type == 'test':
-          fpo = codecs.open(args.auto_test_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_test_path
-          fp_auto_pos = args.auto_test_path
-      elif type == 'valid':
-          fpo = codecs.open(args.auto_valid_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_valid_path
-          fp_auto_pos = args.auto_valid_path
-      elif type == 'train':
-          fpo = codecs.open(args.auto_train_path, 'w', encoding='utf-8')
-          fp_gold_pos = args.gold_train_path
-          fp_auto_pos = args.auto_train_path
-
-          start_time = time.time()
-
-          model.eval()
-          # total_loss = 0.0
-          pred, gold, res = [], [], []
-
-          for x, y, text in zip(valid_x, valid_y, text_):
-
-              output, loss = model.forward(x, y)
-              pred += output
-              gold += y
-              for word, raw in zip(text, output):
-                  temp = []
-                  for index_pos, pos in enumerate(word):
-                      str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
-                      temp.append(str_temp)
-
-                  res.append(' '.join(temp))
-
-          fpo.write('\n'.join(res))
-
-          suffix = str(args.mid_order_number)
-
-          fpo.close()
-          # sort them for the same order, to cal the right f value
-          sort_gold_pos_path = fp_gold_pos + suffix
-          sort_auto_pos_path = fp_auto_pos + suffix
-          eval_sort(fp_gold_pos, sort_gold_pos_path)
-          eval_sort(fp_auto_pos, sort_auto_pos_path)
-
-          # with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
-          #
-          #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-          #   sort.wait()
-          #
-          # with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
-          #
-          #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-          #   sort_gold.wait()
-
-          str_gold_pos_path = fp_gold_pos + suffix
-          str_auto_pos_path = fp_auto_pos + suffix
-          print("-------------------eval training begins-------------------")
-          p = subprocess.Popen(
-              ['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path',
-               str_auto_pos_path], stdout=subprocess.PIPE)
-          p.wait()
-          f = 0
-
-          for line in p.stdout.readlines():
-              print(line)
-              f = line.strip().split()[-1]
-          print("-------------------eval training ends-------------------")
-          print("\n")
-          return float(f)
-
-      start_time = time.time()
-
-      model.eval()
-      # total_loss = 0.0
-      pred, gold, res = [], [], []
-
-      for x, y, text in zip(valid_x, valid_y, text_):
-
-          output, loss = model.forward(x, y)
-          pred += output
-          gold += y
-          for word, raw in zip(text, output):
-              temp = []
-              for index_pos, pos in enumerate(word):
-                  str_temp = pos + '_' + ix2label[raw[index_pos]]  # here, use the ix2label
-                  temp.append(str_temp)
-
-              res.append(' '.join(temp))
-
-      fpo.write('\n'.join(res))
-
-      suffix = str(args.mid_order_number)
-
-      fpo.close()
-      # sort them for the same order, to cal the right f value
-      sort_gold_pos_path = fp_gold_pos + suffix
-      sort_auto_pos_path = fp_auto_pos + suffix
-      eval_sort(fp_gold_pos, sort_gold_pos_path)
-      eval_sort(fp_auto_pos, sort_auto_pos_path)
-
-      # with codecs.open(fp_auto_pos + suffix, 'w') as fp_w:
-      #
-      #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-      #   sort.wait()
-      #
-      # with codecs.open(fp_gold_pos + suffix, 'w') as fp_gold:
-      #
-      #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-      #   sort_gold.wait()
-
-      str_gold_pos_path = fp_gold_pos + suffix
-      str_auto_pos_path = fp_auto_pos + suffix
-      p = subprocess.Popen(['python3', './ulits/cal_pos_f.py', '--gold_pos_path', str_gold_pos_path, '--auto_pos_path', str_auto_pos_path],stdout=subprocess.PIPE)
-      p.wait()
-      f = 0
-      for line in p.stdout.readlines():
-          print(line)
-          f = line.strip().split()[-1]
-
-      return float(f)
+  p = subprocess.Popen([args.script, gold_path, path], stdout=subprocess.PIPE)
+  p.wait()
+  f = 0
+  for line in p.stdout.readlines():
+    f = line.strip().split()[-1]
+  return float(f)
 
 
 def train_model(epoch, model, optimizer,
-                train_x, train_y, valid_x, valid_y,
-                test_x, test_y,
-                best_valid, test_result, args,train_x_text, valid_x_text, test_x_text, ix2label):
+                train_x, train_y, valid_x, valid_y, valid_text, test_x, test_y, test_text, ix2label):
   model.train()
   args = model.args
   niter = epoch * len(train_x[0])
 
-  total_loss = 0.0
-  total_tag = 0
+  total_loss, total_tag = 0.0, 0
+  best_valid, test_result = 0., 0.
   cnt = 0
   start_time = time.time()
+
+  lst = list(range(len(train_x)))
+  random.shuffle(lst)
+  train_x, train_y = [train_x[l] for l in lst], [train_y[l] for l in lst]
+
   for x, y in zip(train_x, train_y):
     niter += 1
     cnt += 1
@@ -478,7 +252,7 @@ def train_model(epoch, model, optimizer,
     torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
-      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={}".format(
+      logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s".format(
         epoch, cnt,
         optimizer.param_groups[0]['lr'],
         1.0 * total_loss / total_tag,
@@ -486,21 +260,17 @@ def train_model(epoch, model, optimizer,
       ))
       start_time = time.time()
 
-  # when use_partial == 0, use acc and when use_partial == 1, use f score
-  train_result = eval_model(niter, model, train_x, train_y, args,'train', train_x_text, ix2label )
-
-  valid_result = eval_model(niter, model, valid_x, valid_y, args, 'valid', valid_x_text, ix2label)
-
-  logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(epoch, niter,
-                                                                                      optimizer.param_groups[0]['lr'],
-                                                                                      loss.data[0], valid_result))
+  valid_result = eval_model(model, valid_x, valid_y, valid_text, ix2label, args, args.gold_valid_path)
+  logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
+    epoch, niter, optimizer.param_groups[0]['lr'], loss.data[0], valid_result))
 
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
     best_valid = valid_result
-    test_result = eval_model(niter, model, test_x, test_y, args, 'test', test_x_text, ix2label)
-    logging.info("New Record!!Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(epoch, niter, optimizer.param_groups[0]['lr'],
-                                                                     test_result))
+    test_result = eval_model(model, test_x, test_y, test_text, ix2label, args, args.gold_test_path)
+    logging.info("New record achieved!")
+    logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(
+      epoch, niter, optimizer.param_groups[0]['lr'], test_result))
   return best_valid, test_result
 
 
@@ -515,23 +285,16 @@ def label_to_index(y, label_to_ix):
 def train():
   cmd = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
   cmd.add_argument('--seed', default=1, type=int, help='the random seed.')
-  cmd.add_argument('--cuda', action='store_true', default=False, help='use cuda')
+  cmd.add_argument('--gpu', default=-1, type=int, help='use id of gpu, -1 if cpu.')
   cmd.add_argument('--encoder', default='lstm', help='the type of encoder: '
                                                      'valid options=[lstm, sru, gcnn, cnn, dilated]')
   cmd.add_argument('--optimizer', default='sgd', help='the type of optimizer: valid options=[sgd, adam]')
   cmd.add_argument('--train_path', required=True, help='the path to the training file.')
   cmd.add_argument('--valid_path', required=True, help='the path to the validation file.')
   cmd.add_argument('--test_path', required=True, help='the path to the testing file.')
-  # cmd.add_argument('--partial_train_path', required=True, type = str, help='the path to the training file.')
-  # cmd.add_argument('--partial_valid_path', required=True, type = str, help='the path to the validation file.')
-  # cmd.add_argument('--partial_test_path', required=True, type = str, help='the path to the testing file.')
-  cmd.add_argument('--auto_valid_path', required=True, type=str, help='the path to the validation file.')
-  cmd.add_argument('--auto_test_path', required=True, type=str, help='the path to the testing file for cal f score.')
-  cmd.add_argument('--auto_train_path', required=True, type=str, help='the path to the testing file for cal f score.')
 
-  cmd.add_argument('--gold_valid_path', required=True, type=str, help='the path to the validation file for cal f score.')
+  cmd.add_argument('--gold_valid_path', required=True, type=str, help='the path to the validation file.')
   cmd.add_argument('--gold_test_path', required=True, type=str, help='the path to the testing file.')
-  cmd.add_argument('--gold_train_path', required=True, type=str, help='the path to the training file.')
 
   cmd.add_argument("--model", required=True, help="path to save model")
   cmd.add_argument("--word_embedding", type=str, required=True, help="word vectors")
@@ -544,28 +307,33 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
-  cmd.add_argument("--use_partial", default=0, type = int, help = "whether use the partial data")
-  cmd.add_argument("--mid_order_number", default=0, type = int, help = "in order to shuffle the mid-file name")
+  cmd.add_argument("--use_partial", default=False, action='store_true', help="whether use the partial data")
+  cmd.add_argument('--output', help='The path to the output file.')
+  cmd.add_argument("--script", required=True, help="The path to the evaluation script")
 
-  args = cmd.parse_args(sys.argv[2:])
+  opt = cmd.parse_args(sys.argv[2:])
 
-  print(args)
-  torch.manual_seed(args.seed)
-  random.seed(args.seed)
+  print(opt)
+  torch.manual_seed(opt.seed)
+  random.seed(opt.seed)
+  if opt.gpu >= 0:
+    torch.cuda.set_device(opt.gpu)
+    if opt.seed > 0:
+      torch.cuda.manual_seed(opt.seed)
 
-  use_cuda = args.cuda and torch.cuda.is_available()
-  # if(args.use_partial == 0):
-  train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.train_path, args.valid_path, args.test_path)
-  # else:
-  #     train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.partial_train_path, args.partial_valid_path, args.partial_test_path)
+  use_cuda = opt.gpu >= 0 and torch.cuda.is_available()
+  train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(
+    opt.train_path, opt.valid_path, opt.test_path)
   logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
     len(train_y), len(valid_y), len(test_y)))
   logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
     sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
-  if args.use_partial == 1:
-      label_to_ix = {'CIXIN':0}
-  elif args.use_partial == 0:
+
+  if opt.use_partial:
+      label_to_ix = {'CIXIN': 0}
+  else:
       label_to_ix = {}
+
   label_to_index(train_y, label_to_ix)
   label_to_index(valid_y, label_to_ix)
   label_to_index(test_y, label_to_ix)
@@ -580,63 +348,64 @@ def train():
     if pad not in word2id:
       word2id[pad] = len(word2id)
 
-  embs_words, embs = load_embedding(args.word_embedding)
+  embs_words, embs = load_embedding(opt.word_embedding)
   lexicon = {word: i for i, word in enumerate(embs_words)}
   extend(train_x, lexicon)
-  emb_layer = EmbeddingLayer(args.d, lexicon, fix_emb=False, embs=(embs_words, embs))
+  emb_layer = EmbeddingLayer(opt.d, lexicon, fix_emb=False, embs=(embs_words, embs))
   logging.info('embedding size: ' + str(len(emb_layer.word2id)))
 
   nclasses = len(label_to_ix)
-  ix2label = {ix:label for label, ix in label_to_ix.items()}
-  train_x, train_y, train_x_text = create_batches(train_x, train_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = train_x)
-  valid_x, valid_y, valid_x_text = create_batches(valid_x, valid_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = valid_x)
-  test_x, test_y, test_x_text = create_batches(test_x, test_y, args.batch_size, emb_layer.word2id, use_cuda=args.cuda, text = test_x)
+  ix2label = {ix: label for label, ix in label_to_ix.items()}
 
+  train_x, train_y, train_text = create_batches(
+    train_x, train_y, opt.batch_size, emb_layer.word2id, use_cuda=use_cuda, text=train_x)
 
-  model = Model(args, emb_layer, nclasses, use_cuda, args.use_partial)
+  valid_x, valid_y, valid_text = create_batches(
+    valid_x, valid_y, opt.batch_size, emb_layer.word2id, shuffle=False, sort=False, use_cuda=use_cuda, text=valid_x)
+
+  test_x, test_y, test_text = create_batches(
+    test_x, test_y, opt.batch_size, emb_layer.word2id, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
+
+  model = Model(opt, emb_layer, nclasses, use_cuda, opt.use_partial)
   if use_cuda:
     model = model.cuda()
 
   need_grad = lambda x: x.requires_grad
-
-  if args.optimizer.lower() == 'adam':
-    optimizer = optim.Adam(filter(need_grad, model.parameters()), lr=args.lr)
+  if opt.optimizer.lower() == 'adam':
+    optimizer = optim.Adam(filter(need_grad, model.parameters()), lr=opt.lr)
   else:
-    optimizer = optim.SGD(filter(need_grad, model.parameters()), lr=args.lr)
+    optimizer = optim.SGD(filter(need_grad, model.parameters()), lr=opt.lr)
 
   try:
-    os.makedirs(args.model)
+    os.makedirs(opt.model)
   except OSError as exception:
     if exception.errno != errno.EEXIST:
       raise
 
-  # save unigram dict.
-  with codecs.open(os.path.join(args.model, 'word.dic'), 'w', encoding='utf-8') as fpo:
+  with codecs.open(os.path.join(opt.model, 'word.dic'), 'w', encoding='utf-8') as fpo:
     for word, i in emb_layer.word2id.items():
-      print(u'{0}\t{1}'.format(word, i), file=fpo)
+      print('{0}\t{1}'.format(word, i), file=fpo)
 
-  with codecs.open(os.path.join(args.model, 'label.dic'), 'w', encoding='utf-8') as fpo:
+  with codecs.open(os.path.join(opt.model, 'label.dic'), 'w', encoding='utf-8') as fpo:
     for label, i in label_to_ix.items():
-      print(u'{0}\t{1}'.format(label, i), file=fpo)
+      print('{0}\t{1}'.format(label, i), file=fpo)
 
-  json.dump(vars(args), codecs.open(os.path.join(args.model, 'config.json'), 'w', encoding='utf-8'))
+  json.dump(vars(opt), codecs.open(os.path.join(opt.model, 'config.json'), 'w', encoding='utf-8'))
   best_valid, test_result = -1e8, -1e8
-  for epoch in range(args.max_epoch):
-    best_valid, test_result = train_model(epoch, model, optimizer, train_x, train_y,
-                                          valid_x, valid_y,
-                                          test_x, test_y,
-                                          best_valid, test_result, args, train_x_text, valid_x_text, test_x_text, ix2label)
-    if args.lr_decay > 0:
-      optimizer.param_groups[0]['lr'] *= args.lr_decay
-    logging.info('Total encoder time: ' + str(model.eval_time))
-    logging.info('Total embedding time: ' + str(model.emb_time))
-    logging.info('Total classify time: ' + str(model.classify_time))
+  for epoch in range(opt.max_epoch):
+    best_valid, test_result = train_model(epoch, model, optimizer,
+                                          train_x, train_y, valid_x, valid_y, valid_text, test_x, test_y, test_text,
+                                          ix2label)
+    if opt.lr_decay > 0:
+      optimizer.param_groups[0]['lr'] *= opt.lr_decay
+    logging.info('Total encoder time: {:.2f}s'.format(model.eval_time))
+    logging.info('Total embedding time: {:.2f}s'.format(model.emb_time))
+    logging.info('Total classify time: {:.2f}s'.format(model.classify_time))
 
-  if args.use_partial == 1:
-
+  if opt.use_partial:
       logging.info("best_valid_f: {:.6f}".format(best_valid))
       logging.info("test_f: {:.6f}".format(test_result))
-  elif args.use_partial == 0:
+  else:
       logging.info("best_valid_acc: {:.6f}".format(best_valid))
       logging.info("test_acc: {:.6f}".format(test_result))
 
@@ -645,10 +414,8 @@ def test():
   cmd = argparse.ArgumentParser('The testing components of')
   cmd.add_argument('--cuda', action='store_true', default=False, help='use cuda')
   cmd.add_argument("--input", help="the path to the test file.")
-  cmd.add_argument('--gold_pos_path', help='the path to the output file.', type = str)
-  cmd.add_argument('--output', help='the path to the output file.', type = str)
+  cmd.add_argument('--output', help='the path to the output file.')
   cmd.add_argument("--model", required=True, help="path to save model")
-  cmd.add_argument("--partial_test", type = int, help="wchether use partial test", default=0)
 
   args = cmd.parse_args(sys.argv[2:])
 
@@ -678,65 +445,27 @@ def test():
   test_x, test_y = read_corpus(args.input)
   label_to_index(test_y, label2id)
 
-  test_x, test_y, test_text = create_batches(test_x, test_y, args2.batch_size, lexicon, use_cuda=use_cuda, text=test_x)
+  test_x, test_y, test_text = create_batches(
+    test_x, test_y, args2.batch_size, lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
   if args.output is not None:
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
   else:
-    fpo = sys.stdout
+    fpo = codecs.getwriter('utf-8')(sys.stdout)
+
   start_time = time.time()
   model.eval()
   pred, gold = [], []
-  count = 0
-  res = []
   for x, y, text in zip(test_x, test_y, test_text):
-
-    count += 1
-    # print(count)
     output, loss = model.forward(x, y)
     pred += output
-    #print("pred{0}".format(pred))
     gold += y
-    for word, raw in zip(text, output):
-      # print(u'{0}\t{1}'.format(u' '.join(word), u' '.join([id2label[t] for t in raw])), file=fpo)
-       temp = []
-       for index_pos, pos in enumerate(word):
-         # print(pos)
-         str_temp = pos + '_' + id2label[raw[index_pos]]
-         temp.append(str_temp)
-       res.append(' '.join(temp))
-
-  fpo.write('\n'.join(res))
+    for bid in range(len(x)):
+      for k, (word, tag) in enumerate(zip(text[bid], output[bid])):
+        tag = ix2label[tag]
+        print('{0}\t{1}\t{1}\t{2}\t{2}\t_\t_\t_'.format(k + 1, word, tag), file=fpo)
+      print(file=fpo)
   fpo.close()
-
-  # correct = map(cmp, flatten(gold), flatten(pred)).count(0)
-  # total = len(flatten(gold))
-  # logging.info("**Evaluate result: acc = {:.6f}, time = {}".format(1.0 * correct / total, time.time() - start_time))
-  fp_auto_pos = args.output
-  fp_gold_pos = args.gold_pos_path
-
-  # now, we should resort both of two
-  sort_gold_pos_path = fp_gold_pos + 'text.txt'
-  sort_auto_pos_path = fp_auto_pos + 'text.txt'
-  eval_sort(fp_gold_pos, sort_gold_pos_path)
-  eval_sort(fp_auto_pos, sort_auto_pos_path)
-
-  # with codecs.open(fp_auto_pos + 'text.txt', 'w') as fp_w:
-  #
-  #   sort = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_auto_pos], stdout=fp_w)
-  #
-  # with codecs.open(fp_gold_pos + 'text.txt', 'w') as fp_gold:
-  #
-  #   sort_gold = subprocess.Popen(['python3', './ulits/sort_pos.py', fp_gold_pos], stdout=fp_gold)
-
-  str_gold_pos_path = fp_gold_pos+'text.txt'
-  str_auto_pos_path = fp_auto_pos+'text.txt'
-
-  # p = subprocess.Popen(['python', './ulits/cal_pos_f.py','--gold_pos_path',fp_gold_pos+'text.txt', '--auto_pos_path',fp_auto_pos+'text.txt'], stdout=subprocess.PIPE)
-  p = subprocess.Popen(['python3', './ulits/cal_pos_f.py','--gold_pos_path',str_gold_pos_path, '--auto_pos_path',str_auto_pos_path], stdout=subprocess.PIPE)
-  p.wait()
-  for line in p.stdout.readlines():
-      print(line)
 
 
 if __name__ == "__main__":

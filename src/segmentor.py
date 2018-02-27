@@ -302,6 +302,12 @@ def train_model(epoch, model, optimizer,
   total_tag = 0
   cnt = 0
   start_time = time.time()
+
+  # shuffle the data
+  lst = list(range(len(train_x)))
+  random.shuffle(lst)
+  train_x, train_y = [train_x[l] for l in lst], [train_y[l] for l in lst]
+
   for x, y in zip(train_x, train_y):
     niter += 1
     cnt += 1
@@ -314,10 +320,7 @@ def train_model(epoch, model, optimizer,
     optimizer.step()
     if cnt * args.batch_size % 1024 == 0:
       logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s.".format(
-        epoch, cnt, optimizer.param_groups[0]['lr'],
-        1.0 * total_loss / total_tag,
-        time.time() - start_time
-      ))
+        epoch, cnt, optimizer.param_groups[0]['lr'], 1.0 * total_loss / total_tag, time.time() - start_time))
       start_time = time.time()
 
   valid_result = eval_model(model, valid_x, valid_y)
@@ -338,7 +341,7 @@ def train_model(epoch, model, optimizer,
 def train():
   cmd = argparse.ArgumentParser('{0} train'.format(__file__))
   cmd.add_argument('--seed', default=1, type=int, help='the random seed.')
-  cmd.add_argument('--cuda', action='store_true', default=False, help='use cuda')
+  cmd.add_argument('--gpu', default=-1, type=int, help='The id of gpu, -1 if cpu.')
   cmd.add_argument('--encoder', default='lstm', choices=['lstm'],
                    help='the type of encoder: valid options=[lstm, sru, gcnn, cnn, dilated]')
   cmd.add_argument('--optimizer', default='sgd', choices=['sgd', 'adam'],
@@ -358,16 +361,22 @@ def train():
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
   cmd.add_argument("--lr_decay", type=float, default=0, help='the learning rate decay.')
   cmd.add_argument("--clip_grad", type=float, default=5, help='the tense of clipped grad.')
-  args = cmd.parse_args(sys.argv[2:])
-  print(args)
-  torch.manual_seed(args.seed)
-  random.seed(args.seed)
+  opt = cmd.parse_args(sys.argv[2:])
+  print(opt)
 
-  use_cuda = args.cuda and torch.cuda.is_available()
-  train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(args.train_path, args.valid_path, args.test_path)
+  torch.manual_seed(opt.seed)
+  random.seed(opt.seed)
+  if opt.gpu >= 0:
+    torch.cuda.set_device(opt.gpu)
+    if opt.seed > 0:
+      torch.cuda.manual_seed(opt.seed)
+
+  use_cuda = opt.gpu >= 0 and torch.cuda.is_available()
+  train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(opt.train_path, opt.valid_path, opt.test_path)
 
   logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
     len(train_y), len(valid_y), len(test_y)))
+
   logging.info('training tokens: {}, validation tokens: {}, test tokens: {}.'.format(
     sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
 
@@ -380,65 +389,63 @@ def train():
     if pad not in word2id:
       word2id[pad] = len(word2id)
 
-  uni_embs_words, uni_embs = load_embedding(args.unigram_embedding)
+  uni_embs_words, uni_embs = load_embedding(opt.unigram_embedding)
   uni_lexicon = {unigram: i for i, unigram in enumerate(uni_embs_words)}
   extend(train_x[0], uni_lexicon)
-  uni_emb_layer = EmbeddingLayer(args.d, uni_lexicon, fix_emb=False, embs=(uni_embs_words, uni_embs))
-  logging.info('unigram embedding size: ' + str(len(uni_emb_layer.word2id)))
+  uni_emb_layer = EmbeddingLayer(opt.d, uni_lexicon, fix_emb=False, embs=(uni_embs_words, uni_embs))
+  logging.info('unigram embedding size: {0}'.format(len(uni_emb_layer.word2id)))
 
-  bi_embs_words, bi_embs = load_embedding(args.bigram_embedding)
+  bi_embs_words, bi_embs = load_embedding(opt.bigram_embedding)
   bi_lexicon = {bigram: i for i, bigram in enumerate(bi_embs_words)}
   extend(train_x[1], bi_lexicon)
-  bi_emb_layer = EmbeddingLayer(args.d, bi_lexicon, fix_emb=False, embs=(bi_embs_words, bi_embs))
-  logging.info('bigram embedding size: ' + str(len(bi_emb_layer.word2id)))
+  bi_emb_layer = EmbeddingLayer(opt.d, bi_lexicon, fix_emb=False, embs=(bi_embs_words, bi_embs))
+  logging.info('bigram embedding size: {0}'.format(len(bi_emb_layer.word2id)))
 
   nclasses = 4
   train_x, train_y = create_batches(
-    train_x, train_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id, use_cuda=use_cuda)
+    train_x, train_y, opt.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    use_cuda=use_cuda)
   valid_x, valid_y = create_batches(
-    valid_x, valid_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    valid_x, valid_y, opt.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
     shuffle=False, sort=False, use_cuda=use_cuda)
   test_x, test_y = create_batches(
-    test_x, test_y, args.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    test_x, test_y, opt.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
     shuffle=False, sort=False, use_cuda=use_cuda)
 
-  model = Model(args, uni_emb_layer, bi_emb_layer, nclasses, use_cuda=use_cuda)
+  model = Model(opt, uni_emb_layer, bi_emb_layer, nclasses, use_cuda=use_cuda)
   if use_cuda:
     model = model.cuda()
 
   need_grad = lambda x: x.requires_grad
-  if args.optimizer.lower() == 'adam':
-    optimizer = optim.Adam(filter(need_grad, model.parameters()), lr=args.lr)
+  if opt.optimizer.lower() == 'adam':
+    optimizer = optim.Adam(filter(need_grad, model.parameters()), lr=opt.lr)
   else:
-    optimizer = optim.SGD(filter(need_grad, model.parameters()), lr=args.lr)
+    optimizer = optim.SGD(filter(need_grad, model.parameters()), lr=opt.lr)
 
   try:
-    os.makedirs(args.model)
+    os.makedirs(opt.model)
   except OSError as exception:
     if exception.errno != errno.EEXIST:
       raise
 
   # save unigram dict.
-  with codecs.open(os.path.join(args.model, 'unigram.dic'), 'w', encoding='utf-8') as fpo:
+  with codecs.open(os.path.join(opt.model, 'unigram.dic'), 'w', encoding='utf-8') as fpo:
     for word, i in uni_emb_layer.word2id.items():
       print('{0}\t{1}'.format(word, i), file=fpo)
 
   # save bigram dict.
-  with codecs.open(os.path.join(args.model, 'bigram.dic'), 'w', encoding='utf-8') as fpo:
+  with codecs.open(os.path.join(opt.model, 'bigram.dic'), 'w', encoding='utf-8') as fpo:
     for word, i in bi_emb_layer.word2id.items():
       print('{0}\t{1}'.format(word, i), file=fpo)
 
-  json.dump(vars(args), codecs.open(os.path.join(args.model, 'config.json'), 'w', encoding='utf-8'))
+  json.dump(vars(opt), codecs.open(os.path.join(opt.model, 'config.json'), 'w', encoding='utf-8'))
   best_valid, test_result = -1e8, -1e8
-  for epoch in range(args.max_epoch):
-    lst = list(range(len(train_x)))
-    random.shuffle(lst)
-    train_x, train_y = [train_x[i] for i in lst], [train_y[i] for i in lst]
+  for epoch in range(opt.max_epoch):
     best_valid, test_result = train_model(epoch, model, optimizer, train_x, train_y, valid_x, valid_y,
                                           test_x, test_y,
                                           best_valid, test_result)
-    if args.lr_decay > 0:
-      optimizer.param_groups[0]['lr'] *= args.lr_decay
+    if opt.lr_decay > 0:
+      optimizer.param_groups[0]['lr'] *= opt.lr_decay
     logging.info('Total encoder time: {:.2f}s.'.format(model.eval_time))
     logging.info('Total embedding time: {:.2f}s.'.format(model.emb_time))
     logging.info('Total classify time: {:.2f}s.'.format(model.classify_time))
