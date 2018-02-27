@@ -297,7 +297,6 @@ def train_model(epoch, model, optimizer,
   niter = epoch * len(train_x[0])  # for statis and output log
 
   total_loss, total_tag = 0.0, 0
-  test_result = 0.
   cnt = 0
   start_time = time.time()
 
