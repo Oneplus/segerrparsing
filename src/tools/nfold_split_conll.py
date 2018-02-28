@@ -19,7 +19,6 @@ def main():
   random.seed(1234)
   dataset = codecs.open(opt.input, 'r', encoding='utf-8').read().strip().split('\n\n')
   n_sent = len(dataset)
-
   random.shuffle(dataset)
 
   # print(number)
@@ -31,10 +30,10 @@ def main():
     test_path = os.path.join(opt.output, '{0}.{1}.test'.format(basename, i))
 
     with codecs.open(train_path, 'w', encoding='utf-8') as fpo:
-      print('\n\n'.join([data for k, data in enumerate(dataset) if k < start or k >= end]), file=fpo)
+      print('\n\n'.join([data for k, data in enumerate(dataset) if k < start or k > end]), file=fpo)
 
     with codecs.open(test_path, 'w', encoding='utf-8') as fpo:
-      print('\n\n'.join([data for k, data in enumerate(dataset) if start <= k < end]), file=fpo)
+      print('\n\n'.join([data for k, data in enumerate(dataset) if start <= k <= end]), file=fpo)
 
 
 if __name__ == '__main__':
