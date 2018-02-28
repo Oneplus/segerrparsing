@@ -481,11 +481,10 @@ def test():
 
   use_cuda = args.cuda and torch.cuda.is_available()
   model = Model(args2, uni_emb_layer, bi_emb_layer, use_cuda=use_cuda)
+  model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
 
   if use_cuda:
     model = model.cuda()
-
-  model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
 
   test_x, test_y = read_corpus(args.input)
   test_x, test_y, test_text = create_batches(test_x, test_y, args2.batch_size, uni_lexicon, bi_lexicon,
