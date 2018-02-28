@@ -131,7 +131,7 @@ if __name__ == '__main__':
   cmd.add_argument("--output", help="path of auto sentence")
   opt = cmd.parse_args()
 
-  gold_data = codecs.open(opt.gold, 'r').read().strip().split('\n\n')
-  auto_data = codecs.open(opt.auto, 'r').read().strip().split('\n\n')
+  gold_data = codecs.open(opt.gold, 'r', encoding='utf-8').read().strip().split('\n\n')
+  auto_data = codecs.open(opt.auto, 'r', encoding='utf-8').read().strip().split('\n\n')
 
   align(gold_data, auto_data, opt.output)
