@@ -23,7 +23,7 @@ def main():
   random.shuffle(dataset)
 
   # print(number)
-  fold_size = n_sent // opt.nfold
+  fold_size = ((n_sent // opt.nfold) + (1 if n_sent % opt.nfold != 0 else 0))
   basename = os.path.basename(opt.input)
   for i in range(opt.nfold):
     start, end = i * fold_size, min((i + 1) * fold_size, n_sent)
@@ -31,10 +31,10 @@ def main():
     test_path = os.path.join(opt.output, '{0}.{1}.test'.format(basename, i))
 
     with codecs.open(train_path, 'w', encoding='utf-8') as fpo:
-      print('\n\n'.join([data for i, data in enumerate(dataset) if i < start or i >= end]), file=fpo)
+      print('\n\n'.join([data for k, data in enumerate(dataset) if k < start or k >= end]), file=fpo)
 
     with codecs.open(test_path, 'w', encoding='utf-8') as fpo:
-      print('\n\n'.join([data for i, data in enumerate(dataset) if start < i < end]), file=fpo)
+      print('\n\n'.join([data for k, data in enumerate(dataset) if start <= k < end]), file=fpo)
 
 
 if __name__ == '__main__':
