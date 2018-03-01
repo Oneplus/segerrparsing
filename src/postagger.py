@@ -123,11 +123,11 @@ def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True,
 
 
 class Model(nn.Module):
-  def __init__(self, args, emb_layer, n_class, use_cuda, use_parital):
+  def __init__(self, args, emb_layer, n_class, use_cuda):
     super(Model, self).__init__()
     self.use_cuda = use_cuda
     self.args = args
-    self.use_partial = use_parital
+    self.use_partial = args.use_partial
     self.emb_layer = emb_layer
     encoder_output = None
     if args.encoder.lower() == 'cnn':
@@ -148,10 +148,8 @@ class Model(nn.Module):
                             bidirectional=True)
       encoder_output = args.hidden_dim * 2
 
-    if use_parital == 0:
-      self.classify_layer = ClassifyLayer(encoder_output, n_class, self.use_cuda)
-    else:
-      self.classify_partial = PartialClassifyLayer(encoder_output, n_class, self.use_cuda)
+    classify_layer_func = PartialClassifyLayer if self.use_partial else ClassifyLayer
+    self.classify_layer = classify_layer_func(encoder_output, n_class, self.use_cuda)
 
     self.train_time = 0
     self.eval_time = 0
@@ -185,11 +183,7 @@ class Model(nn.Module):
 
     start_time = time.time()
 
-    if self.use_partial == 1:
-      output, loss = self.classify_partial.forward(output, y)
-
-    else:
-      output, loss = self.classify_layer.forward(output, y)
+    output, loss = self.classify_layer.forward(output, y)
 
     if not self.training:
       self.classify_time += time.time() - start_time
@@ -273,12 +267,14 @@ def train_model(epoch, model, optimizer,
   return best_valid, test_result
 
 
-def label_to_index(y, label_to_ix):
+def label_to_index(y, label_to_ix, incremental=True):
   for i in range(len(y)):
     for j in range(len(y[i])):
-      if y[i][j] not in label_to_ix:
-        label_to_ix[y[i][j]] = len(label_to_ix)
-      y[i][j] = label_to_ix[y[i][j]]
+      if y[i][j] not in label_to_ix and incremental:
+        label = label_to_ix[y[i][j]] = len(label_to_ix)
+      else:
+        label = label_to_ix.get(y[i][j], 0)
+      y[i][j] = label
 
 
 def train():
@@ -334,8 +330,8 @@ def train():
       label_to_ix = {}
 
   label_to_index(train_y, label_to_ix)
-  label_to_index(valid_y, label_to_ix)
-  label_to_index(test_y, label_to_ix)
+  label_to_index(valid_y, label_to_ix, incremental=False)
+  label_to_index(test_y, label_to_ix, incremental=False)
   logging.info('number of tags: {0}'.format(len(label_to_ix)))
 
   def extend(words, word2id, oov='<oov>', pad='<pad>'):
@@ -365,7 +361,7 @@ def train():
   test_x, test_y, test_text = create_batches(
     test_x, test_y, opt.batch_size, emb_layer.word2id, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
-  model = Model(opt, emb_layer, nclasses, use_cuda, opt.use_partial)
+  model = Model(opt, emb_layer, nclasses, use_cuda)
   if use_cuda:
     model = model.cuda()
 
@@ -436,13 +432,13 @@ def test():
   logging.info('number of labels: {0}'.format(len(label2id)))
 
   use_cuda = args.cuda and torch.cuda.is_available()
-  model = Model(args2, emb_layer, len(label2id), use_cuda, args.partial_test)
+  model = Model(args2, emb_layer, len(label2id), use_cuda)
   model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
   if use_cuda:
       model = model.cuda()
 
   test_x, test_y = read_corpus(args.input)
-  label_to_index(test_y, label2id)
+  label_to_index(test_y, label2id, incremental=False)
 
   test_x, test_y, test_text = create_batches(
     test_x, test_y, args2.batch_size, lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
@@ -452,7 +448,6 @@ def test():
   else:
     fpo = codecs.getwriter('utf-8')(sys.stdout)
 
-  start_time = time.time()
   model.eval()
   pred, gold = [], []
   for x, y, text in zip(test_x, test_y, test_text):
@@ -461,7 +456,7 @@ def test():
     gold += y
     for bid in range(len(x)):
       for k, (word, tag) in enumerate(zip(text[bid], output[bid])):
-        tag = ix2label[tag]
+        tag = id2label[tag]
         print('{0}\t{1}\t{1}\t{2}\t{2}\t_\t_\t_'.format(k + 1, word, tag), file=fpo)
       print(file=fpo)
   fpo.close()
