@@ -329,7 +329,7 @@ def train():
     sum([len(seq) for seq in train_y]), sum([len(seq) for seq in valid_y]), sum([len(seq) for seq in test_y])))
 
   if opt.use_partial:
-      label_to_ix = {'CIXIN': 0}
+      label_to_ix = {'<UNK>': 0}
   else:
       label_to_ix = {}
 
