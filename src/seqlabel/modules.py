@@ -139,15 +139,33 @@ class PartialClassifyLayer(ClassifyLayer):
   def __init__(self, n_in, tag_size,  use_cuda=False):
     super(PartialClassifyLayer, self).__init__(n_in, tag_size, use_cuda)
 
-    weight = torch.ones(tag_size)
-    weight[PARTIAL] = 0
-    self.criterion = nn.NLLLoss(weight, size_average=False)
+  def _get_indices_without_partial_tags(self, y):
+    indices = []
+    max_len = max([len(_) for _ in y])
+    for i in range(len(y)):
+      cur_len = len(y[i])
+      indices += [i * max_len + x for x in range(cur_len) if y[i][x] != PARTIAL]
+    return indices
+
+  def _get_tag_list_without_partial_tags(self, tag_result, y):
+    tag_list = []
+    last = 0
+    for i in range(len(y)):
+      new_yi = [y_ij for y_ij in y[i] if y_ij != PARTIAL]
+      if len(new_yi) == 0:
+        tag_list.append([])
+      else:
+        tag_list.append(tag_result[0][last: last + len(new_yi)].data.tolist())
+      last += len(new_yi)
+    return tag_list
 
   def forward(self, x, y):
-    tag_vec = Variable(torch.LongTensor(flatten(y))).cuda() if self.use_cuda \
-      else Variable(torch.LongTensor(flatten(y)))
-    indices = Variable(torch.LongTensor(self._get_indices(y))).cuda() if self.use_cuda \
-      else Variable(torch.LongTensor(self._get_indices(y)))
+    new_y = flatten([[y_ij for y_ij in y_i if y_ij != PARTIAL] for y_i in y] if self.training else y)
+    tag_vec = Variable(torch.LongTensor(new_y)).cuda() if self.use_cuda else Variable(torch.LongTensor(new_y))
+
+    indices = self._get_indices_without_partial_tags(y) if self.training else self._get_indices(y)
+    indices = Variable(torch.LongTensor(indices)).cuda() if self.use_cuda else Variable(torch.LongTensor(indices))
+
     tag_scores = self.hidden2tag(torch.index_select(x.contiguous().view(-1, self.n_in), 0, indices))
     if self.training:
       tag_scores = self.logsoftmax(tag_scores)
@@ -156,7 +174,7 @@ class PartialClassifyLayer(ClassifyLayer):
     _, tag_result = torch.max(tag_scores[:, 1:], 1)
     tag_result.add_(1)
     if self.training:
-      return self._get_tag_list(tag_result.view(1, -1), y), self.criterion(tag_scores, tag_vec)
+      return self._get_tag_list_without_partial_tags(tag_result.view(1, -1), y), self.criterion(tag_scores, tag_vec)
     else:
       return self._get_tag_list(tag_result.view(1, -1), y), torch.FloatTensor([0.0])
 
