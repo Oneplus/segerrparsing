@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import unicode_literals
 import collections
 import itertools
 
@@ -20,43 +21,32 @@ def dict2namedtuple(dic):
   return collections.namedtuple('Namespace', dic.keys())(**dic)
 
 
-def tag2intervals(tag):
-  def tag2id(t):
-    # tricky!
-    if t.lower() == 'b':
-      return 0
-    elif t.lower() == 'i':
-      return 1
-    elif t.lower() == 'e':
-      return 2
-    else:
-      return 3
-
-  if isinstance(tag[0], str) or isinstance(tag[0], unicode):
-    tag = [tag2id(t) for t in tag]
-  assert isinstance(tag[0], int)
-  intervals = []
+def tag2intervals(tags, id_to_tag):
+  if isinstance(tags[0], int):
+    tags = [id_to_tag.get(t) for t in tags]
+  assert isinstance(tags[0], str) or isinstance(tags[0], unicode)
+  intervals = set()
   start = None
-  for i, t in enumerate(tag):
-    if t == 0 or t == 3:
+  for i, t in enumerate(tags):
+    if t.lower() == 'b' or t.lower() == 's':
       if start is not None:
-        intervals.append((start, i - 1))
+        intervals.add((start, i - 1))
       start = i
-  intervals.append((start, len(tag) - 1))
+  intervals.add((start, len(tags) - 1))
   return intervals
 
 
-def f_score(gold, predication):
-  assert len(gold) == len(predication)
+def f_score(gold, prediction, id_to_tag=None):
+  assert len(gold) == len(prediction)
+
+  if id_to_tag is None:
+    id_to_tag = {0: 'b', 1: 'i', 2: 'e', 3: 's'}
   n_corr, n_gold, n_pred = 0, 0, 0
-  for gold_, pred_ in zip(gold, predication):
-    gold_intervals = tag2intervals(gold_)
-    pred_intervals = tag2intervals(pred_)
-    seg = set()
-    for interval in gold_intervals:
-      seg.add(interval)
-    for interval in pred_intervals:
-      if interval in seg:
+  for gold_, pred_ in zip(gold, prediction):
+    gold_intervals = tag2intervals(gold_, id_to_tag)
+    pred_intervals = tag2intervals(pred_, id_to_tag)
+    for gold_interval in gold_intervals:
+      if gold_interval in pred_intervals:
         n_corr += 1
     n_gold += len(gold_intervals)
     n_pred += len(pred_intervals)

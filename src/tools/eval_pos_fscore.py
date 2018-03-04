@@ -44,7 +44,7 @@ def main():
       if gold_tuple in auto_tuples:
         n_corr += 1
     n_gold += len(gold_tuples)
-    n_pred += len(gold_tuples)
+    n_pred += len(auto_tuples)
 
   p = 0 if n_pred == 0 else 1. * n_corr / n_pred
   r = 0 if n_gold == 0 else 1. * n_corr / n_gold
