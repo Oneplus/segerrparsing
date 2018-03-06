@@ -474,7 +474,7 @@ def test():
     output_data = output.data
     for bid in range(len(x)):
       for k, (word, tag) in enumerate(zip(text[bid], output_data[bid])):
-        tag = ix2label[tag]
+        tag = id2label[tag]
         print('{0}\t{1}\t{1}\t{2}\t{2}\t_\t_\t_'.format(k + 1, word, tag), file=fpo)
       print(file=fpo)
   fpo.close()
