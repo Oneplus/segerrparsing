@@ -460,7 +460,7 @@ def test():
   test_x, test_y = read_corpus(args.input)
   label_to_index(test_y, label2id, incremental=False)
 
-  test_x, test_y, test_text = create_batches(
+  test_x, test_y, test_lens, test_text = create_batches(
     test_x, test_y, 1, lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
   if args.output is not None:
@@ -469,14 +469,12 @@ def test():
     fpo = codecs.getwriter('utf-8')(sys.stdout)
 
   model.eval()
-  pred, gold = [], []
-  for x, y, text in zip(test_x, test_y, test_text):
+  for x, y, lens, text in zip(test_x, test_y, test_lens, test_text):
     output, loss = model.forward(x, y)
-    pred += output
-    gold += y
+    output_data = output.data
     for bid in range(len(x)):
-      for k, (word, tag) in enumerate(zip(text[bid], output[bid])):
-        tag = id2label[tag]
+      for k, (word, tag) in enumerate(zip(text[bid], output_data[bid])):
+        tag = ix2label[tag]
         print('{0}\t{1}\t{1}\t{2}\t{2}\t_\t_\t_'.format(k + 1, word, tag), file=fpo)
       print(file=fpo)
   fpo.close()
