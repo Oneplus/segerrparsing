@@ -503,7 +503,10 @@ def test():
   word_lexicon = {}
   with codecs.open(os.path.join(args.model, 'word.dic'), 'r', encoding='utf-8') as fpi:
     for line in fpi:
-      token, i = line.strip().split('\t')
+      tokens = line.strip().split('\t')
+      if len(tokens) == 1:
+        tokens.insert(0, '\u3000')
+      token, i = tokens
       word_lexicon[token] = int(i)
   word_emb_layer = EmbeddingLayer(args2.d, word_lexicon, fix_emb=False, embs=None)
 
@@ -512,10 +515,7 @@ def test():
   label2id, id2label = {}, {}
   with codecs.open(os.path.join(args.model, 'label.dic'), 'r', encoding='utf-8') as fpi:
     for line in fpi:
-      tokens = line.strip().split('\t')
-      if len(tokens) == 1:
-        tokens.insert(0, '\u3000')
-      token, i = tokens
+      token, i = line.strip().split('\t')
       label2id[token] = int(i)
       id2label[int(i)] = token
   logging.info('number of labels: {0}'.format(len(label2id)))
