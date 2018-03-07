@@ -152,44 +152,45 @@ def create_batches(x, y, batch_size, word2id, char2id, perm=None, shuffle=True, 
 
 
 class Model(nn.Module):
-  def __init__(self, args, word_emb_layer, char_emb_layer, n_class, use_cuda):
+  def __init__(self, opt, word_emb_layer, char_emb_layer, n_class, use_cuda):
     super(Model, self).__init__()
     self.use_cuda = use_cuda
-    self.args = args
-    self.use_partial = args.use_partial
+    self.opt = opt
+    self.use_partial = opt.use_partial
     self.word_emb_layer = word_emb_layer
     self.char_emb_layer = char_emb_layer
 
-    self.char_lstm = nn.LSTM(char_emb_layer.n_d, args.d, num_layers=1, bidirectional=True,
-                             batch_first=True, dropout=args.dropout)
+    self.char_lstm = nn.LSTM(char_emb_layer.n_d, char_emb_layer.n_d, num_layers=1, bidirectional=True,
+                             batch_first=True, dropout=opt.dropout)
 
     encoder_output = None
-    if args.encoder.lower() == 'cnn':
-      self.encoder = MultiLayerCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
-      encoder_output = args.hidden_dim
-    elif args.encoder.lower() == 'gcnn':
-      self.encoder = GatedCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
-      encoder_output = args.hidden_dim
-    elif args.encoder.lower() == 'lstm':
-      self.encoder = nn.LSTM(word_emb_layer.n_d * 3, args.hidden_dim, num_layers=args.depth, bidirectional=True,
-                             batch_first=True, dropout=args.dropout)
-      encoder_output = args.hidden_dim * 2
-    elif args.encoder.lower() == 'dilated':
-      self.encoder = DilatedCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
-      encoder_output = args.hidden_dim
-    elif args.encoder.lower() == 'sru':
-      self.encoder = MF.SRU(word_emb_layer.n_d, args.hidden_dim, args.depth, dropout=args.dropout, use_tanh=1,
+    if opt.encoder.lower() == 'cnn':
+      self.encoder = MultiLayerCNN(word_emb_layer.n_d, opt.hidden_dim, opt.depth, opt.dropout)
+      encoder_output = opt.hidden_dim
+    elif opt.encoder.lower() == 'gcnn':
+      self.encoder = GatedCNN(word_emb_layer.n_d, opt.hidden_dim, opt.depth, opt.dropout)
+      encoder_output = opt.hidden_dim
+    elif opt.encoder.lower() == 'lstm':
+      self.encoder = nn.LSTM(word_emb_layer.n_d + 2 * char_emb_layer.n_d, opt.hidden_dim,
+                             num_layers=opt.depth, bidirectional=True,
+                             batch_first=True, dropout=opt.dropout)
+      encoder_output = opt.hidden_dim * 2
+    elif opt.encoder.lower() == 'dilated':
+      self.encoder = DilatedCNN(word_emb_layer.n_d, opt.hidden_dim, opt.depth, opt.dropout)
+      encoder_output = opt.hidden_dim
+    elif opt.encoder.lower() == 'sru':
+      self.encoder = MF.SRU(word_emb_layer.n_d, opt.hidden_dim, opt.depth, dropout=opt.dropout, use_tanh=1,
                             bidirectional=True)
-      encoder_output = args.hidden_dim * 2
+      encoder_output = opt.hidden_dim * 2
 
-    if args.classifier.lower() == 'vanilla':
+    if opt.classifier.lower() == 'vanilla':
       classify_layer_func = PartialClassifyLayer if self.use_partial else ClassifyLayer
       self.classify_layer = classify_layer_func(encoder_output, n_class, self.use_cuda)
-    elif args.classifier.lower() == 'crf':
+    elif opt.classifier.lower() == 'crf':
       classify_layer_func = PartialCRFLayer if self.use_partial else CRFLayer
       self.classify_layer = classify_layer_func(encoder_output, n_class, self.use_cuda)
     else:
-      raise ValueError('Unknown classifier {0}'.format(args.classifier))
+      raise ValueError('Unknown classifier {0}'.format(opt.classifier))
 
     self.train_time = 0
     self.eval_time = 0
@@ -200,30 +201,30 @@ class Model(nn.Module):
     start_time = time.time()
     batch_size, seq_len = word_inp.size(0), word_inp.size(1)
     word_emb = self.word_emb_layer(Variable(word_inp).cuda() if self.use_cuda else Variable(word_inp))
-    word_emb = F.dropout(word_emb, self.args.dropout, self.training)
+    word_emb = F.dropout(word_emb, self.opt.dropout, self.training)
 
     chars_inp, chars_lengths, chars_real_indices = chars_package
     chars_emb = self.char_emb_layer(Variable(chars_inp).cuda() if self.use_cuda else Variable(chars_inp))
     packed_chars_emb = nn.utils.rnn.pack_padded_sequence(chars_emb, chars_lengths, batch_first=True)
     _, (chars_outputs, __) = self.char_lstm(packed_chars_emb)
-    chars_outputs = chars_outputs.permute(1, 0, 2).contiguous().view(-1, self.args.d * 2)
-    chars_outputs = chars_outputs[chars_real_indices, :].view(-1, seq_len, self.args.d * 2)
+    chars_outputs = chars_outputs.permute(1, 0, 2).contiguous().view(-1, self.opt.char_dim * 2)
+    chars_outputs = chars_outputs[chars_real_indices, :].view(-1, seq_len, self.opt.char_dim * 2)
 
     emb = torch.cat([word_emb, chars_outputs], dim=2)
     if not self.training:
       self.emb_time += time.time() - start_time
 
     start_time = time.time()
-    if self.args.encoder.lower() in ('lstm', 'sru'):
+    if self.opt.encoder.lower() in ('lstm', 'sru'):
       # x = emb.permute(1, 0, 2)  -- for SRU
       output, hidden = self.encoder(emb)
       # output = output.permute(1, 0, 2)
-    elif self.args.encoder.lower() in ('cnn', 'gcnn'):
+    elif self.opt.encoder.lower() in ('cnn', 'gcnn'):
       output = self.encoder(emb)
-    elif self.args.encoder.lower() == 'dilated':
+    elif self.opt.encoder.lower() == 'dilated':
       output = self.encoder(emb)
     else:
-      raise ValueError('unknown encoder: {0}'.format(self.args.encoder))
+      raise ValueError('unknown encoder: {0}'.format(self.opt.encoder))
 
     if self.training:
       self.train_time += time.time() - start_time
@@ -273,7 +274,7 @@ def train_model(epoch, model, optimizer,
                 test_x, test_c, test_y, test_lens, test_text,
                 ix2label, best_valid, test_result):
   model.train()
-  args = model.args
+  opt = model.opt
 
   total_loss, total_tag = 0.0, 0
   cnt = 0
@@ -294,9 +295,9 @@ def train_model(epoch, model, optimizer,
     n_tags = sum(lens)
     total_tag += n_tags
     loss.backward()
-    torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
+    torch.nn.utils.clip_grad_norm(model.parameters(), opt.clip_grad)
     optimizer.step()
-    if cnt * args.batch_size % 1024 == 0:
+    if cnt * opt.batch_size % 1024 == 0:
       logging.info("Epoch={} iter={} lr={:.6f} train_ave_loss={:.6f} time={:.2f}s".format(
         epoch, cnt, optimizer.param_groups[0]['lr'],
         1.0 * loss.data[0] / n_tags, time.time() - start_time
@@ -304,15 +305,15 @@ def train_model(epoch, model, optimizer,
       start_time = time.time()
 
   valid_result = eval_model(model, valid_x, valid_c, valid_y, valid_lens, valid_text,
-                            ix2label, args, args.gold_valid_path)
+                            ix2label, opt, opt.gold_valid_path)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
     epoch, cnt, optimizer.param_groups[0]['lr'], total_loss, valid_result))
 
   if valid_result > best_valid:
-    torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
+    torch.save(model.state_dict(), os.path.join(opt.model, 'model.pkl'))
     best_valid = valid_result
     test_result = eval_model(model, test_x, test_c, test_y, test_lens, test_text,
-                             ix2label, args, args.gold_test_path)
+                             ix2label, opt, opt.gold_test_path)
     logging.info("New record achieved!")
     logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(
       epoch, cnt, optimizer.param_groups[0]['lr'], test_result))
@@ -351,7 +352,8 @@ def train():
   cmd.add_argument("--batch_size", "--batch", type=int, default=32, help='the batch size.')
   cmd.add_argument("--hidden_dim", "--hidden", type=int, default=128, help='the hidden dimension.')
   cmd.add_argument("--max_epoch", type=int, default=100, help='the maximum number of iteration.')
-  cmd.add_argument("--d", type=int, default=100, help='the input dimension.')
+  cmd.add_argument("--word_dim", type=int, default=100, help='the input dimension.')
+  cmd.add_argument("--char_dim", type=int, default=50, help='the char dimension.')
   cmd.add_argument("--dropout", type=float, default=0.0, help='the dropout rate')
   cmd.add_argument("--depth", type=int, default=2, help='the depth of lstm')
   cmd.add_argument("--lr", type=float, default=0.01, help='the learning rate.')
@@ -409,8 +411,8 @@ def train():
     if special_char not in char_lexicon:
       char_lexicon[special_char] = len(char_lexicon)
 
-  word_emb_layer = EmbeddingLayer(opt.d, word_lexicon, fix_emb=False, embs=(embs_words, embs))
-  char_emb_layer = EmbeddingLayer(opt.d, char_lexicon, fix_emb=False)
+  word_emb_layer = EmbeddingLayer(opt.word_dim, word_lexicon, fix_emb=False, embs=(embs_words, embs))
+  char_emb_layer = EmbeddingLayer(opt.char_dim, char_lexicon, fix_emb=False)
 
   logging.info('Word embedding size: {0}'.format(len(word_emb_layer.word2id)))
   logging.info('Char embedding size: {0}'.format(len(char_emb_layer.word2id)))
