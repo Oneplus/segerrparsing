@@ -265,6 +265,7 @@ def eval_model(model, valid_x, valid_c, valid_y, valid_lens, valid_text, ix2labe
   f = 0
   for line in p.stdout.readlines():
     f = line.strip().split()[-1]
+  os.remove(path)
   return float(f)
 
 
