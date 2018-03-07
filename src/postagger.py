@@ -496,7 +496,10 @@ def test():
   char_lexicon = {}
   with codecs.open(os.path.join(args.model, 'char.dic'), 'r', encoding='utf-8') as fpi:
     for line in fpi:
-      token, i = line.strip().split('\t')
+      tokens = line.strip().split('\t')
+      if len(tokens) == 1:
+        tokens.insert(0, '\u3000')
+      token, i = tokens
       char_lexicon[token] = int(i)
   char_emb_layer = EmbeddingLayer(args2.d, char_lexicon, fix_emb=False, embs=None)
 
