@@ -141,10 +141,7 @@ class PartialClassifyLayer(ClassifyLayer):
     _, tag_result = torch.max(tag_scores[:, :, 2:], 2)
     tag_result.add_(2)
     if self.training:
-      new_y = torch.LongTensor([y_ for y_ in y.view(-1) if y_ not in (self.uncertain, 0)])
-      new_indices = Variable(torch.LongTensor([i for i, y_ in enumerate(y.view(-1)) if y_ not in (self.uncertain, 0)]))
-      tag_scores = torch.index_select(tag_scores.view(-1, self.num_tags), 0, new_indices)
-      return tag_result, self.criterion(tag_scores, Variable(new_y))
+      return tag_result, self.criterion(tag_scores.view(-1, self.num_tags), Variable(y).view(-1))
     else:
       return tag_result, torch.FloatTensor([0.0])
 

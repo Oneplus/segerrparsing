@@ -59,7 +59,7 @@ def read_data(train_path, valid_path, test_path):
   return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def create_one_batch(x, y, map2id, oov='<oov>', pad='<pad>', sort=True, use_cuda=False):
+def create_one_batch(x, y, word2id, char2id, oov='<oov>', pad='<pad>', sort=True, use_cuda=False):
   batch_size = len(x)
   lst = list(range(batch_size))
   if sort:
@@ -70,12 +70,29 @@ def create_one_batch(x, y, map2id, oov='<oov>', pad='<pad>', sort=True, use_cuda
   lens = [len(x[i]) for i in lst]
   max_len = max(lens)
 
-  oov_id, pad_id = map2id.get(oov, None), map2id.get(pad, None)
+  oov_id, pad_id = word2id.get(oov, None), word2id.get(pad, None)
   assert oov_id is not None and pad_id is not None
   batch_x = torch.LongTensor(batch_size, max_len).fill_(pad_id)
   for i, x_i in enumerate(x):
     for j, x_ij in enumerate(x_i):
-      batch_x[i][j] = map2id.get(x_ij, oov_id)
+      batch_x[i][j] = word2id.get(x_ij, oov_id)
+
+  max_chars = max([len(w) for i in lst for w in x[i]]) + 1  # counting the <bos>
+  bos_id, oov_id, pad_id = char2id.get('<bos>', None), char2id.get(oov, None), char2id.get(pad, None)
+  assert bos_id is not None and oov_id is not None and pad_id is not None
+  batch_c = torch.LongTensor(batch_size * max_len, max_chars).fill_(pad_id)
+  batch_c_lens = torch.LongTensor(batch_size * max_len).fill_(1)
+  for i, x_i in enumerate(x):
+    for j, x_ij in enumerate(x_i):
+      batch_c_lens[i * max_len + j] = len(x_ij) + 1  # counting the <bos>
+  new_batch_c_lens, indices = torch.sort(batch_c_lens, descending=True)
+  for idx in indices:
+    i, j = idx // max_len, idx % max_len
+    batch_c[idx][0] = bos_id
+    if j < len(x[i]):
+      x_ij = x[i][j]
+      for k, c in enumerate(x_ij):
+        batch_c[idx][k + 1] = char2id.get(c, oov_id)
 
   batch_y = torch.LongTensor(batch_size, max_len).fill_(0)
   for i, y_i in enumerate(y):
@@ -83,12 +100,13 @@ def create_one_batch(x, y, map2id, oov='<oov>', pad='<pad>', sort=True, use_cuda
       batch_y[i][j] = y_ij
   if use_cuda:
     batch_x = batch_x.cuda()
+    batch_c = batch_c.cuda()
     batch_y = batch_y.cuda()
-  return batch_x, batch_y, lens
+  return batch_x, (batch_c, new_batch_c_lens.tolist(), indices), batch_y, lens
 
 
 # shuffle training examples and create mini-batches
-def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True, use_cuda=False, text=None):
+def create_batches(x, y, batch_size, word2id, char2id, perm=None, shuffle=True, sort=True, use_cuda=False, text=None):
   lst = perm or range(len(x))
   if shuffle:
     random.shuffle(lst)
@@ -102,14 +120,16 @@ def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True,
     text = [text[i] for i in lst]
 
   sum_len = 0.0
-  batches_x, batches_y, batches_lens, batches_text = [], [], [], []
+  batches_x, batches_c, batches_y, batches_lens, batches_text = [], [], [], [], []
   size = batch_size
   nbatch = (len(x) - 1) // size + 1
   for i in range(nbatch):
     start_id, end_id = i * size, (i + 1) * size
-    bx, by, blens = create_one_batch(x[start_id: end_id], y[start_id: end_id], map2id, sort=sort, use_cuda=use_cuda)
+    bx, bc, by, blens = create_one_batch(x[start_id: end_id], y[start_id: end_id], word2id, char2id,
+                                         sort=sort, use_cuda=use_cuda)
     sum_len += sum(blens)
     batches_x.append(bx)
+    batches_c.append(bc)
     batches_y.append(by)
     batches_lens.append(blens)
     if text is not None:
@@ -119,6 +139,7 @@ def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True,
     perm = range(nbatch)
     random.shuffle(perm)
     batches_x = [batches_x[i] for i in perm]
+    batches_c = [batches_c[i] for i in perm]
     batches_y = [batches_y[i] for i in perm]
     batches_lens = [batches_lens[i] for i in perm]
     if text is not None:
@@ -126,33 +147,38 @@ def create_batches(x, y, batch_size, map2id, perm=None, shuffle=True, sort=True,
 
   logging.info("{} batches, avg len: {:.1f}".format(nbatch, sum_len / len(x)))
   if text is not None:
-    return batches_x, batches_y, batches_lens, batches_text
-  return batches_x, batches_y, batches_lens
+    return batches_x, batches_c, batches_y, batches_lens, batches_text
+  return batches_x, batches_c, batches_y, batches_lens
 
 
 class Model(nn.Module):
-  def __init__(self, args, emb_layer, n_class, use_cuda):
+  def __init__(self, args, word_emb_layer, char_emb_layer, n_class, use_cuda):
     super(Model, self).__init__()
     self.use_cuda = use_cuda
     self.args = args
     self.use_partial = args.use_partial
-    self.emb_layer = emb_layer
+    self.word_emb_layer = word_emb_layer
+    self.char_emb_layer = char_emb_layer
+
+    self.char_lstm = nn.LSTM(char_emb_layer.n_d, args.d, num_layers=1, bidirectional=True,
+                             batch_first=True, dropout=args.dropout)
+
     encoder_output = None
     if args.encoder.lower() == 'cnn':
-      self.encoder = MultiLayerCNN(emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
+      self.encoder = MultiLayerCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
       encoder_output = args.hidden_dim
     elif args.encoder.lower() == 'gcnn':
-      self.encoder = GatedCNN(emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
+      self.encoder = GatedCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
       encoder_output = args.hidden_dim
     elif args.encoder.lower() == 'lstm':
-      self.encoder = nn.LSTM(emb_layer.n_d, args.hidden_dim, num_layers=args.depth, bidirectional=True,
+      self.encoder = nn.LSTM(word_emb_layer.n_d * 3, args.hidden_dim, num_layers=args.depth, bidirectional=True,
                              batch_first=True, dropout=args.dropout)
       encoder_output = args.hidden_dim * 2
     elif args.encoder.lower() == 'dilated':
-      self.encoder = DilatedCNN(emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
+      self.encoder = DilatedCNN(word_emb_layer.n_d, args.hidden_dim, args.depth, args.dropout)
       encoder_output = args.hidden_dim
     elif args.encoder.lower() == 'sru':
-      self.encoder = MF.SRU(emb_layer.n_d, args.hidden_dim, args.depth, dropout=args.dropout, use_tanh=1,
+      self.encoder = MF.SRU(word_emb_layer.n_d, args.hidden_dim, args.depth, dropout=args.dropout, use_tanh=1,
                             bidirectional=True)
       encoder_output = args.hidden_dim * 2
 
@@ -170,11 +196,20 @@ class Model(nn.Module):
     self.emb_time = 0
     self.classify_time = 0
 
-  def forward(self, x, y):
+  def forward(self, word_inp, chars_package, y):
     start_time = time.time()
-    emb = self.emb_layer(Variable(x).cuda() if self.use_cuda else Variable(x))
-    emb = F.dropout(emb, self.args.dropout, self.training)
+    batch_size, seq_len = word_inp.size(0), word_inp.size(1)
+    word_emb = self.word_emb_layer(Variable(word_inp).cuda() if self.use_cuda else Variable(word_inp))
+    word_emb = F.dropout(word_emb, self.args.dropout, self.training)
 
+    chars_inp, chars_lengths, chars_real_indices = chars_package
+    chars_emb = self.char_emb_layer(Variable(chars_inp).cuda() if self.use_cuda else Variable(chars_inp))
+    packed_chars_emb = nn.utils.rnn.pack_padded_sequence(chars_emb, chars_lengths, batch_first=True)
+    _, (chars_outputs, __) = self.char_lstm(packed_chars_emb)
+    chars_outputs = chars_outputs.permute(1, 0, 2).contiguous().view(-1, self.args.d * 2)
+    chars_outputs = chars_outputs[chars_real_indices, :].view(-1, seq_len, self.args.d * 2)
+
+    emb = torch.cat([word_emb, chars_outputs], dim=2)
     if not self.training:
       self.emb_time += time.time() - start_time
 
@@ -205,7 +240,7 @@ class Model(nn.Module):
     return output, loss
 
 
-def eval_model(model, valid_x, valid_y, valid_lens, valid_text, ix2label, args, gold_path):
+def eval_model(model, valid_x, valid_c, valid_y, valid_lens, valid_text, ix2label, args, gold_path):
   if args.output is not None:
     path = args.output
     fpo = codecs.open(path, 'w', encoding='utf-8')
@@ -214,8 +249,8 @@ def eval_model(model, valid_x, valid_y, valid_lens, valid_text, ix2label, args, 
     fpo = codecs.getwriter('utf-8')(os.fdopen(descriptor, 'w'))
 
   model.eval()
-  for x, y, lens, text in zip(valid_x, valid_y, valid_lens, valid_text):
-    output, loss = model.forward(x, y)
+  for x, c, y, lens, text in zip(valid_x, valid_c, valid_y, valid_lens, valid_text):
+    output, loss = model.forward(x, c, y)
     output_data = output.data
     for bid in range(len(x)):
       for k, (word, tag) in enumerate(zip(text[bid], output_data[bid])):
@@ -233,9 +268,9 @@ def eval_model(model, valid_x, valid_y, valid_lens, valid_text, ix2label, args, 
 
 
 def train_model(epoch, model, optimizer,
-                train_x, train_y, train_lens,
-                valid_x, valid_y, valid_lens, valid_text,
-                test_x, test_y, test_lens, test_text,
+                train_x, train_c, train_y, train_lens,
+                valid_x, valid_c, valid_y, valid_lens, valid_text,
+                test_x, test_c, test_y, test_lens, test_text,
                 ix2label, best_valid, test_result):
   model.train()
   args = model.args
@@ -246,12 +281,15 @@ def train_model(epoch, model, optimizer,
 
   lst = list(range(len(train_x)))
   random.shuffle(lst)
-  train_x, train_y, train_lens = [train_x[l] for l in lst], [train_y[l] for l in lst], [train_lens[l] for l in lst]
+  train_x = [train_x[l] for l in lst]
+  train_c = [train_c[l] for l in lst]
+  train_y = [train_y[l] for l in lst]
+  train_lens = [train_lens[l] for l in lst]
 
-  for x, y, lens in zip(train_x, train_y, train_lens):
+  for x, c, y, lens in zip(train_x, train_c, train_y, train_lens):
     cnt += 1
     model.zero_grad()
-    _, loss = model.forward(x, y)
+    _, loss = model.forward(x, c, y)
     total_loss += loss.data[0]
     n_tags = sum(lens)
     total_tag += n_tags
@@ -265,7 +303,7 @@ def train_model(epoch, model, optimizer,
       ))
       start_time = time.time()
 
-  valid_result = eval_model(model, valid_x, valid_y, valid_lens, valid_text,
+  valid_result = eval_model(model, valid_x, valid_c, valid_y, valid_lens, valid_text,
                             ix2label, args, args.gold_valid_path)
   logging.info("Epoch={} iter={} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}".format(
     epoch, cnt, optimizer.param_groups[0]['lr'], total_loss, valid_result))
@@ -273,7 +311,7 @@ def train_model(epoch, model, optimizer,
   if valid_result > best_valid:
     torch.save(model.state_dict(), os.path.join(args.model, 'model.pkl'))
     best_valid = valid_result
-    test_result = eval_model(model, test_x, test_y, test_lens, test_text,
+    test_result = eval_model(model, test_x, test_c, test_y, test_lens, test_text,
                              ix2label, args, args.gold_test_path)
     logging.info("New record achieved!")
     logging.info("Epoch={} iter={} lr={:.6f} test_acc={:.6f}".format(
@@ -351,34 +389,46 @@ def train():
   label_to_index(test_y, label_to_ix, incremental=False)
   logging.info('number of tags: {0}'.format(len(label_to_ix)))
 
-  def extend(words, word2id, oov='<oov>', pad='<pad>'):
-    for w in deep_iter(words):
-      if w not in word2id:
-        word2id[w] = len(word2id)
-    if oov not in word2id:
-      word2id[oov] = len(word2id)
-    if pad not in word2id:
-      word2id[pad] = len(word2id)
-
   embs_words, embs = load_embedding(opt.word_embedding)
-  lexicon = {word: i for i, word in enumerate(embs_words)}
-  extend(train_x, lexicon)
-  emb_layer = EmbeddingLayer(opt.d, lexicon, fix_emb=False, embs=(embs_words, embs))
-  logging.info('embedding size: ' + str(len(emb_layer.word2id)))
+  word_lexicon = {word: i for i, word in enumerate(embs_words)}
+  char_lexicon = {}
+
+  for x in train_x:
+    for w in x:
+      if w not in word_lexicon:
+        word_lexicon[w] = len(word_lexicon)
+      for ch in w:
+        if ch not in char_lexicon:
+          char_lexicon[ch] = len(char_lexicon)
+
+  for special_word in ['<oov>', '<pad>']:
+    if special_word not in word_lexicon:
+      word_lexicon[special_word] = len(word_lexicon)
+
+  for special_char in ['<bos>', '<oov>', '<pad>']:
+    if special_char not in char_lexicon:
+      char_lexicon[special_char] = len(char_lexicon)
+
+  word_emb_layer = EmbeddingLayer(opt.d, word_lexicon, fix_emb=False, embs=(embs_words, embs))
+  char_emb_layer = EmbeddingLayer(opt.d, char_lexicon, fix_emb=False)
+
+  logging.info('Word embedding size: {0}'.format(len(word_emb_layer.word2id)))
+  logging.info('Char embedding size: {0}'.format(len(char_emb_layer.word2id)))
 
   nclasses = len(label_to_ix)
   ix2label = {ix: label for label, ix in label_to_ix.items()}
 
-  train_x, train_y, train_lens, train_text = create_batches(
-    train_x, train_y, opt.batch_size, emb_layer.word2id, use_cuda=use_cuda, text=train_x)
+  word2id, char2id = word_emb_layer.word2id, char_emb_layer.word2id
+  train_x, train_c, train_y, train_lens, train_text = create_batches(
+    train_x, train_y, opt.batch_size, word2id, char2id, use_cuda=use_cuda, text=train_x)
 
-  valid_x, valid_y, valid_lens, valid_text = create_batches(
-    valid_x, valid_y, 1, emb_layer.word2id, shuffle=False, sort=False, use_cuda=use_cuda, text=valid_x)
+  valid_x, valid_c, valid_y, valid_lens, valid_text = create_batches(
+    valid_x, valid_y, 1, word2id, char2id, shuffle=False, sort=False, use_cuda=use_cuda, text=valid_x)
 
-  test_x, test_y, test_lens, test_text = create_batches(
-    test_x, test_y, 1, emb_layer.word2id, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
+  test_x, test_c, test_y, test_lens, test_text = create_batches(
+    test_x, test_y, 1, word2id, char2id, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
-  model = Model(opt, emb_layer, nclasses, use_cuda)
+  model = Model(opt, word_emb_layer, char_emb_layer, nclasses, use_cuda)
   logging.info(str(model))
   if use_cuda:
     model = model.cuda()
@@ -395,9 +445,13 @@ def train():
     if exception.errno != errno.EEXIST:
       raise
 
+  with codecs.open(os.path.join(opt.model, 'char.dic'), 'w', encoding='utf-8') as fpo:
+    for ch, i in char_emb_layer.word2id.items():
+      print('{0}\t{1}'.format(ch, i), file=fpo)
+
   with codecs.open(os.path.join(opt.model, 'word.dic'), 'w', encoding='utf-8') as fpo:
-    for word, i in emb_layer.word2id.items():
-      print('{0}\t{1}'.format(word, i), file=fpo)
+    for w, i in word_emb_layer.word2id.items():
+      print('{0}\t{1}'.format(w, i), file=fpo)
 
   with codecs.open(os.path.join(opt.model, 'label.dic'), 'w', encoding='utf-8') as fpo:
     for label, i in label_to_ix.items():
@@ -407,9 +461,9 @@ def train():
   best_valid, test_result = -1e8, -1e8
   for epoch in range(opt.max_epoch):
     best_valid, test_result = train_model(epoch, model, optimizer,
-                                          train_x, train_y, train_lens,
-                                          valid_x, valid_y, valid_lens, valid_text,
-                                          test_x, test_y, test_lens, test_text,
+                                          train_x, train_c, train_y, train_lens,
+                                          valid_x, valid_c, valid_y, valid_lens, valid_text,
+                                          test_x, test_c, test_y, test_lens, test_text,
                                           ix2label, best_valid, test_result)
     if opt.lr_decay > 0:
       optimizer.param_groups[0]['lr'] *= opt.lr_decay
@@ -435,13 +489,22 @@ def test():
   args = cmd.parse_args(sys.argv[2:])
 
   args2 = dict2namedtuple(json.load(codecs.open(os.path.join(args.model, 'config.json'), 'r', encoding='utf-8')))
-  lexicon = {}
+
+  char_lexicon = {}
+  with codecs.open(os.path.join(args.model, 'char.dic'), 'r', encoding='utf-8') as fpi:
+    for line in fpi:
+      token, i = line.strip().split('\t')
+      char_lexicon[token] = int(i)
+  char_emb_layer = EmbeddingLayer(args2.d, char_lexicon, fix_emb=False, embs=None)
+
+  word_lexicon = {}
   with codecs.open(os.path.join(args.model, 'word.dic'), 'r', encoding='utf-8') as fpi:
     for line in fpi:
       token, i = line.strip().split('\t')
-      lexicon[token] = int(i)
-  emb_layer = EmbeddingLayer(args2.d, lexicon, fix_emb=False, embs=None)
-  logging.info('word embedding size: ' + str(len(emb_layer.word2id)))
+      word_lexicon[token] = int(i)
+  word_emb_layer = EmbeddingLayer(args2.d, word_lexicon, fix_emb=False, embs=None)
+
+  logging.info('word embedding size: ' + str(len(word_emb_layer.word2id)))
 
   label2id, id2label = {}, {}
   with codecs.open(os.path.join(args.model, 'label.dic'), 'r', encoding='utf-8') as fpi:
@@ -452,7 +515,7 @@ def test():
   logging.info('number of labels: {0}'.format(len(label2id)))
 
   use_cuda = args.cuda and torch.cuda.is_available()
-  model = Model(args2, emb_layer, len(label2id), use_cuda)
+  model = Model(args2, word_emb_layer, char_emb_layer, len(label2id), use_cuda)
   model.load_state_dict(torch.load(os.path.join(args.model, 'model.pkl')))
   if use_cuda:
       model = model.cuda()
@@ -460,8 +523,8 @@ def test():
   test_x, test_y = read_corpus(args.input)
   label_to_index(test_y, label2id, incremental=False)
 
-  test_x, test_y, test_lens, test_text = create_batches(
-    test_x, test_y, 1, lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
+  test_x, test_c, test_y, test_lens, test_text = create_batches(
+    test_x, test_y, 1, word_lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
   if args.output is not None:
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
@@ -469,8 +532,8 @@ def test():
     fpo = codecs.getwriter('utf-8')(sys.stdout)
 
   model.eval()
-  for x, y, lens, text in zip(test_x, test_y, test_lens, test_text):
-    output, loss = model.forward(x, y)
+  for x, c, y, lens, text in zip(test_x, test_c, test_y, test_lens, test_text):
+    output, loss = model.forward(x, c, y)
     output_data = output.data
     for bid in range(len(x)):
       for k, (word, tag) in enumerate(zip(text[bid], output_data[bid])):
