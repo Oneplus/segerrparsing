@@ -512,7 +512,10 @@ def test():
   label2id, id2label = {}, {}
   with codecs.open(os.path.join(args.model, 'label.dic'), 'r', encoding='utf-8') as fpi:
     for line in fpi:
-      token, i = line.strip().split('\t')
+      tokens = line.strip().split('\t')
+      if len(tokens) == 1:
+        tokens.insert(0, '\u3000')
+      token, i = tokens
       label2id[token] = int(i)
       id2label[int(i)] = token
   logging.info('number of labels: {0}'.format(len(label2id)))
