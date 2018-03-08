@@ -533,7 +533,7 @@ def test():
   label_to_index(test_y, label2id, incremental=False)
 
   test_x, test_c, test_y, test_lens, test_text = create_batches(
-    test_x, test_y, 1, word_lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
+    test_x, test_y, 1, word_lexicon, char_lexicon, shuffle=False, sort=False, use_cuda=use_cuda, text=test_x)
 
   if args.output is not None:
     fpo = codecs.open(args.output, 'w', encoding='utf-8')
