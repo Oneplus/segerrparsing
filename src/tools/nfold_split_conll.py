@@ -13,10 +13,11 @@ def main():
   cmd.add_argument("--input", help="data to be splited")
   cmd.add_argument("--output", help="path directory")
   cmd.add_argument("--nfold", type=int, default=5, help="the number of folds")
+  cmd.add_argument("--seed", default=1234, type=int, help="the seed.")
 
   opt = cmd.parse_args()
 
-  random.seed(1234)
+  random.seed(opt.seed)
   dataset = codecs.open(opt.input, 'r', encoding='utf-8').read().strip().split('\n\n')
   n_sent = len(dataset)
   random.shuffle(dataset)
