@@ -210,7 +210,7 @@ class CRFLayer(nn.Module):
       for j in range(batch_size):
           mask[i][j][0] = 0
 
-    mask = Variable(mask)
+    mask = Variable(mask).cuda() if self.use_cuda else Variable(mask)
     return self._viterbi_decode_with_mask(emissions, mask)
 
   def _viterbi_decode_with_mask(self, emissions, mask):
