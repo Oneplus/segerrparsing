@@ -12,6 +12,7 @@ import random
 import torch
 import logging
 import json
+import operator
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -67,6 +68,13 @@ def read_corpus(path):
       labels_dataset.append(labels)
   return (unigram_dataset, bigram_dataset), labels_dataset
 
+def read_pmi(pmi_path):
+  pmi_table = {}
+  with codecs.open(pmi_path, 'r', encoding='utf-8') as fin:
+    for data in fin.read().strip().split('\n'):
+      c1, c2, pmi = data.split(' ')
+      pmi_table[c1 + c2] = float(pmi)
+  return pmi_table
 
 def read_data(train_path, valid_path, test_path):
   train_x, train_y = read_corpus(train_path)
@@ -75,7 +83,7 @@ def read_data(train_path, valid_path, test_path):
   return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', pad='<pad>', sort=True, use_cuda=False):
+def create_one_batch(x, y, uni_map2id, bi_map2id, pmi_table, minimum_pmi = 0., oov='<oov>', pad='<pad>', sort=True, use_cuda=False):
   """
   The results are batched data
 
@@ -114,6 +122,14 @@ def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', pad='<pad>', sort
     for j, x1_ij in enumerate(x1_i):
       batch_x1[i][j] = bi_map2id.get(x1_ij, oov_id)
 
+  batch_x2 = torch.FloatTensor(batch_size, max_len, 2).fill_(minimum_pmi)
+  for i, x1_i in enumerate(x1):
+    for j in range(len(x1_i) - 1):
+      if pmi_table != None and x1_i[j] in pmi_table:
+        batch_x2[i][j][0] = pmi_table[x1_i[j]]
+      if pmi_table != None and x1_i[j + 1] in pmi_table:
+        batch_x2[i][j][1] = pmi_table[x1_i[j + 1]] 
+
   batch_y = torch.LongTensor(batch_size, max_len).fill_(0)
   for i, y_i in enumerate(y):
     for j, y_ij in enumerate(y_i):
@@ -121,13 +137,14 @@ def create_one_batch(x, y, uni_map2id, bi_map2id, oov='<oov>', pad='<pad>', sort
   if use_cuda:
     batch_x0 = batch_x0.cuda()
     batch_x1 = batch_x1.cuda()
+    batch_x2 = batch_x2.cuda()
     batch_y = batch_y.cuda()
 
-  return (batch_x0, batch_x1), batch_y, lens
+  return (batch_x0, batch_x1, batch_x2), batch_y, lens
 
 
 # shuffle training examples and create mini-batches
-def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None,
+def create_batches(x, y, batch_size, uni_map2id, bi_map2id, pmi_table, perm=None,
                    shuffle=True, sort=True, use_cuda=False, text=None):
   """
 
@@ -143,6 +160,11 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None,
   :param text:
   :return:
   """
+  if pmi_table != None:
+    minimum_pmi = min([pmi_table[x] for x in pmi_table])
+  else:
+    minimum_pmi = 0.
+
   lst = perm or list(range(len(x[0])))
   if shuffle:
     random.shuffle(lst)
@@ -163,7 +185,7 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None,
   for i in range(nbatch):
     start_id, end_id = i * size, (i + 1) * size
     bx, by, blens = create_one_batch((x[0][start_id: end_id], x[1][start_id: end_id]), y[start_id: end_id],
-                                     uni_map2id, bi_map2id, sort=sort, use_cuda=use_cuda)
+                                     uni_map2id, bi_map2id, pmi_table, minimum_pmi = minimum_pmi, sort=sort, use_cuda=use_cuda)
     sum_len += sum(blens)
     batches_x.append(bx)
     batches_y.append(by)
@@ -188,14 +210,14 @@ def create_batches(x, y, batch_size, uni_map2id, bi_map2id, perm=None,
 
 
 class Model(nn.Module):
-  def __init__(self, args, uni_emb_layer, bi_emb_layer, n_class, use_cuda=False):
+  def __init__(self, args, uni_emb_layer, bi_emb_layer, n_class, feature_dim = 2, use_cuda=False):
     super(Model, self).__init__()
     self.args = args
     self.use_cuda = use_cuda
     self.uni_emb_layer = uni_emb_layer
     self.bi_emb_layer = bi_emb_layer
 
-    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2
+    input_dim = uni_emb_layer.n_d + bi_emb_layer.n_d * 2 + feature_dim
     if args.encoder.lower() == 'cnn':
       self.encoder = MultiLayerCNN(input_dim, args.hidden_dim, args.depth, args.dropout)
       encoded_dim = args.hidden_dim
@@ -245,7 +267,9 @@ class Model(nn.Module):
     left_bigram = self.bi_emb_layer(left_bigram)
     right_bigram = self.bi_emb_layer(right_bigram)
 
-    emb = torch.cat((unigram, left_bigram, right_bigram), 2)  # cat those feature as the final features
+    feature = Variable(x[2]).cuda() if self.use_cuda else Variable(x[2])
+
+    emb = torch.cat((unigram, left_bigram, right_bigram, feature), 2)  # cat those feature as the final features
     emb = F.dropout(emb, self.args.dropout, self.training)
 
     if not self.training:
@@ -287,7 +311,7 @@ def eval_model(model, valid_x, valid_y, valid_lens):
     pred += [r[:l] for r, l in zip(output_data.tolist(), lens)]
     gold += [r[:l] for r, l in zip(y.tolist(), lens)]
 
-  correct = map(cmp, flatten(gold), flatten(pred)).count(0)
+  correct = list(map(operator.eq, flatten(gold), flatten(pred))).count(True)
   total = len(flatten(gold))
   p, r, f = f_score(gold, pred, ix_to_tag)
   logging.info("**Evaluate result: acc={:.6f}, P={:.6f}, R={:.6f}, F={:.6f} time={:.2f}s.".format(
@@ -355,6 +379,7 @@ def train():
   cmd.add_argument('--train_path', required=True, help='the path to the training file.')
   cmd.add_argument('--valid_path', required=True, help='the path to the validation file.')
   cmd.add_argument('--test_path', required=True, help='the path to the testing file.')
+  cmd.add_argument('--pmi_path', required=False, help='the path to the pmi file.')
   cmd.add_argument("--model", required=True, help="path to save model")
   cmd.add_argument("--unigram_embedding", required=True, help="unigram word vectors")
   cmd.add_argument("--bigram_embedding", required=True, help="bigram word vectors")
@@ -378,6 +403,7 @@ def train():
       torch.cuda.manual_seed(opt.seed)
 
   use_cuda = opt.gpu >= 0 and torch.cuda.is_available()
+
   train_x, train_y, valid_x, valid_y, test_x, test_y = read_data(opt.train_path, opt.valid_path, opt.test_path)
 
   logging.info('training instance: {}, validation instance: {}, test instance: {}.'.format(
@@ -407,15 +433,22 @@ def train():
   bi_emb_layer = EmbeddingLayer(opt.d, bi_lexicon, fix_emb=False, embs=(bi_embs_words, bi_embs))
   logging.info('bigram embedding size: {0}'.format(len(bi_emb_layer.word2id)))
 
+  if opt.pmi_path != None:
+    pmi_table = read_pmi(opt.pmi_path)
+    logging.info('pmi size: {0}'.format(len(pmi_table)))  
+  else:
+    pmi_table = None
+    logging.info('no pmi is used.')  
+
   nclasses = len(ix_to_tag)
   train_x, train_y, train_lens = create_batches(
-    train_x, train_y, opt.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    train_x, train_y, opt.batch_size, uni_emb_layer.word2id, bi_emb_layer.word2id, pmi_table, 
     use_cuda=use_cuda)
   valid_x, valid_y, valid_lens = create_batches(
-    valid_x, valid_y, 1, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    valid_x, valid_y, 1, uni_emb_layer.word2id, bi_emb_layer.word2id, pmi_table, 
     shuffle=False, sort=False, use_cuda=use_cuda)
   test_x, test_y, test_lens = create_batches(
-    test_x, test_y, 1, uni_emb_layer.word2id, bi_emb_layer.word2id,
+    test_x, test_y, 1, uni_emb_layer.word2id, bi_emb_layer.word2id, pmi_table,
     shuffle=False, sort=False, use_cuda=use_cuda)
 
   model = Model(opt, uni_emb_layer, bi_emb_layer, nclasses, use_cuda=use_cuda)
