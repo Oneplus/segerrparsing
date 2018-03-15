@@ -102,6 +102,7 @@ def create_one_batch(x, y, word2id, char2id, oov='<oov>', pad='<pad>', sort=True
     batch_x = batch_x.cuda()
     batch_c = batch_c.cuda()
     batch_y = batch_y.cuda()
+    indices = indices.cuda()
   return batch_x, (batch_c, new_batch_c_lens.tolist(), indices), batch_y, lens
 
 
