@@ -120,7 +120,14 @@ class ClassifyLayer(nn.Module):
     if self.training:
       return tag_result, self.criterion(tag_scores.view(-1, self.num_tags), Variable(y).view(-1))
     else:
-      return tag_result, torch.FloatTensor([0.0])
+      return tag_result, torch.FloatTensor([0.0])    
+
+  def get_probs(self, x):
+    tag_scores = self.hidden2tag(x)
+    if self.training:
+      tag_scores = self.logsoftmax(tag_scores)
+
+    return tag_scores
 
 
 class PartialClassifyLayer(ClassifyLayer):

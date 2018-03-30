@@ -16,6 +16,8 @@ def collect(data):
   result = set()
   for line in data.splitlines():
     tokens = line.strip().split()
+    if line[0] == '#' or tokens[0].find('.') != -1 or tokens[0].find('-') != -1:
+      continue
     word = tokens[1]
     result.add((start, len(word), tokens[3]))
     start += len(word)
