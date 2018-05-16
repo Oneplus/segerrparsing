@@ -11,7 +11,7 @@ import codecs
 import argparse
 
 
-def collect(data):
+def collect(data, xpos=True):
   start = 0
   result = set()
   for line in data.splitlines():
@@ -19,7 +19,7 @@ def collect(data):
     if line[0] == '#' or tokens[0].find('.') != -1 or tokens[0].find('-') != -1:
       continue
     word = tokens[1]
-    result.add((start, len(word), tokens[3]))
+    result.add((start, len(word), tokens[4] if xpos else tokens[3]))
     start += len(word)
   return result
 
@@ -28,6 +28,7 @@ def main():
   cmd = argparse.ArgumentParser("Script for evaluating F-score")
   cmd.add_argument('-gold', help="the path to the gold.")
   cmd.add_argument('-auto', help="the path to the prediction.")
+  cmd.add_argument('-xpos', default=False, action='store_true', help='xpos or upos')
 
   opt = cmd.parse_args()
 
@@ -40,8 +41,8 @@ def main():
   assert len(auto_dataset) == len(gold_dataset)
   n_corr, n_pred, n_gold = 0.0, 0.0, 0.0
   for gold_data, auto_data in zip(gold_dataset, auto_dataset):
-    gold_tuples = collect(gold_data)
-    auto_tuples = collect(auto_data)
+    gold_tuples = collect(gold_data, opt.xpos)
+    auto_tuples = collect(auto_data, opt.xpos)
     for gold_tuple in gold_tuples:
       if gold_tuple in auto_tuples:
         n_corr += 1

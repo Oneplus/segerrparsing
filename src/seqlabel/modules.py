@@ -102,7 +102,7 @@ class ClassifyLayer(nn.Module):
     self.logsoftmax = nn.LogSoftmax(dim=2)
     weights = torch.ones(num_tags)
     weights[0] = 0
-    self.criterion = nn.NLLLoss(weights)
+    self.criterion = nn.NLLLoss(weights, size_average=False)
 
   def forward(self, x, y):
     """
@@ -351,7 +351,8 @@ class EmbeddingLayer(nn.Module):
 
     self.word2id = word2id
     self.id2word = {i: word for word, i in word2id.items()}
-    self.n_V, self.n_d = len(word2id), n_d
+    #self.n_V, self.n_d = len(word2id), n_d
+    self.n_V, self.n_d = max(id2word), n_d
     self.oovid = word2id[oov]
     self.padid = word2id[pad]
     self.embedding = nn.Embedding(self.n_V, n_d, padding_idx=self.padid)
